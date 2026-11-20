@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="profile_title">My Account & Profile Center 👤</string>
+    <string name="status_updated">✅ Profile updated successfully!</string>
+    <string name="status_error">❌ Failed to update profile:</string>
+    <string name="quick_actions">⚡ Quick Actions</string>
+    <string name="my_addresses">My Addresses</string>
+    <string name="registered_addresses">Registered Addresses</string>
+    <string name="security">Security</string>
+    <string name="password_email">Password & Email</string>
+    <string name="account_contact">📋 Account & Contact</string>
+    <string name="personal_info">My Personal Information</string>
+    <string name="personal_info_desc">Name, phone and personal details</string>
+    <string name="address_book">Address Book</string>
+    <string name="address_book_desc">Manage saved delivery and business addresses</string>
+    <string name="business_info">My Business Info</string>
+    <string name="prefs_support">⚙️ Preferences & Support</string>
+    <string name="notification_prefs">Notification Preferences</string>
+    <string name="notification_prefs_desc">Appointment and order status notifications</string>
+    <string name="app_language">App Language</string>
+    <string name="app_language_desc">English</string>
+    <string name="faq">Frequently Asked Questions</string>
+    <string name="faq_desc">Platform usage and guide</string>
+    <string name="report_issue">Report Issue & Suggest Feature</string>
+    <string name="report_issue_desc">Send direct message to our support team</string>
+    <string name="privacy_policy">Privacy Policy & GDPR</string>
+    <string name="privacy_policy_desc">Privacy text</string>
+    <string name="terms_of_service">Terms of Service</string>
+    <string name="terms_of_service_desc">Terms and agreements</string>
+    <string name="about_app">About App</string>
+    <string name="about_app_desc">Esnafım v1.0.0 • Local Digital Guide</string>
+    <string name="security_session">🔒 Security & Session</string>
+    <string name="security_center">Password & Security Center</string>
+    <string name="security_center_desc">Email and password operations</string>
+    <string name="sign_out">Sign Out</string>
+    <string name="sign_out_desc">Securely close the current session</string>
+    <string name="delete_account">Permanently Delete Account</string>
+</resources>

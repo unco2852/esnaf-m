@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="profile_title">Hesabım & Profil Merkezi 👤</string>
+    <string name="status_updated">✅ Profil bilgileriniz başarıyla güncellendi!</string>
+    <string name="status_error">❌ Profil güncellenemedi:</string>
+    <string name="quick_actions">⚡ Hızlı İşlemler</string>
+    <string name="my_addresses">Adreslerim</string>
+    <string name="registered_addresses">Kayıtlı Adres</string>
+    <string name="security">Güvenlik</string>
+    <string name="password_email">Şifre & E-posta</string>
+    <string name="account_contact">📋 Hesabım & İletişim</string>
+    <string name="personal_info">Kişisel Bilgilerim</string>
+    <string name="personal_info_desc">Ad soyad, telefon ve kişisel detaylar</string>
+    <string name="address_book">Adres Defterim</string>
+    <string name="address_book_desc">Kayıtlı teslimat ve işletme adreslerinizi yönetin</string>
+    <string name="business_info">İşletme Bilgilerim</string>
+    <string name="prefs_support">⚙️ Tercihler & Destek</string>
+    <string name="notification_prefs">Bildirim Tercihleri</string>
+    <string name="notification_prefs_desc">Randevu ve sipariş durum bildirimleri</string>
+    <string name="app_language">Uygulama Dili / Language</string>
+    <string name="app_language_desc">Türkçe (Varsayılan)</string>
+    <string name="faq">Sıkça Sorulan Sorular</string>
+    <string name="faq_desc">Platform kullanımı ve rehber</string>
+    <string name="report_issue">Sorun Bildir & Özellik Öner</string>
+    <string name="report_issue_desc">Destek ekibimize doğrudan mesaj iletin</string>
+    <string name="privacy_policy">Gizlilik Politikası & KVKK</string>
+    <string name="privacy_policy_desc">Aydınlatma metni</string>
+    <string name="terms_of_service">Kullanım Koşulları</string>
+    <string name="terms_of_service_desc">Hizmet şartları ve sözleşmeler</string>
+    <string name="about_app">Uygulama Hakkında</string>
+    <string name="about_app_desc">Esnafım v1.0.0 • Mahalle Dijital Rehberi</string>
+    <string name="security_session">🔒 Güvenlik & Oturum</string>
+    <string name="security_center">Şifre & Güvenlik Merkezi</string>
+    <string name="security_center_desc">E-posta ve şifre işlemleri</string>
+    <string name="sign_out">Çıkış Yap</string>
+    <string name="sign_out_desc">Mevcut oturumu güvenli şekilde kapatın</string>
+    <string name="delete_account">Hesabımı Kalıcı Olarak Sil</string>
+</resources>

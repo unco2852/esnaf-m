@@ -1,0 +1,313 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Kullanıcılar Koleksiyonu Kuralları
+    match /users/{userId} {
+      // Kullanıcılar kendi özel profillerini, giriş yapmış diğer hesaplar
+      // ise yalnızca esnaf profillerini okuyabilir. Böylece mesajdaki UID
+      // müşteri profiline erişim sağlamaz.
+      allow read: if request.auth != null
+                  && (request.auth.uid == userId || resource.data.role == 'MERCHANT');
+
+      // Yeni kullanıcı kaydı açılışta kendi UID'si ile oluşturulabilir
+      allow create: if request.auth != null && request.auth.uid == userId;
+
+      // Kullanıcı kendi profilini güncelleyebilir, fakat 'role' alanını değiştiremez!
+      allow update: if request.auth != null && request.auth.uid == userId
+                    && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
+                        || resource.data.role == request.resource.data.role);
+
+      // Hesap silme
+      allow delete: if request.auth != null && request.auth.uid == userId;
+
+      // Adresler Alt Koleksiyonu
+      match /addresses/{addressId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // Ürünler Koleksiyonu
+    match /items/{itemId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'MERCHANT'
+                    && request.resource.data.merchantId == request.auth.uid;
+      allow update: if request.auth != null
+                    && ((resource.data.merchantId == request.auth.uid
+                         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'MERCHANT'
+                         && request.resource.data.merchantId == resource.data.merchantId)
+                        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock'])
+                            && request.resource.data.stock is int
+                            && request.resource.data.stock >= 0
+                            && request.resource.data.stock < resource.data.stock));
+      allow delete: if request.auth != null
+                    && resource.data.merchantId == request.auth.uid
+                    && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'MERCHANT';
+    }
+
+    // Siparişler: yalnızca ilgili müşteri ve esnaf okuyabilir; yeni sipariş
+    // gerçek ürün/stok bilgileriyle aynı transaction içinde yazılmalıdır.
+    match /orders/{orderId} {
+      allow read: if request.auth != null
+                  && (request.auth.uid == resource.data.customerId
+                      || request.auth.uid == resource.data.merchantId);
+
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasOnly([
+                      'itemId', 'customerId', 'customerEmail', 'merchantId',
+                      'itemTitle', 'price', 'quantity', 'status', 'createdAt',
+                      'recipientName', 'customerPhone', 'deliveryAddress',
+                      'fulfillmentType', 'paymentMethod', 'paymentStatus', 'approvalDeadlineAt',
+                      'refundAt', 'cancelledAt', 'cancellationReason'
+                    ])
+                    && request.resource.data.keys().hasAll([
+                      'itemId', 'customerId', 'merchantId', 'itemTitle',
+                      'price', 'quantity', 'status', 'createdAt', 'recipientName',
+                      'customerPhone', 'deliveryAddress', 'fulfillmentType',
+                      'paymentMethod', 'paymentStatus', 'approvalDeadlineAt'
+                    ])
+                    && request.resource.data.customerId == request.auth.uid
+                    && request.resource.data.status == 'pending'
+                    && ((request.resource.data.paymentMethod == 'mock_card'
+                         && request.resource.data.paymentStatus == 'demo_paid')
+                        || (request.resource.data.paymentMethod in ['cash_on_delivery', 'pay_at_store']
+                            && request.resource.data.paymentStatus == 'unpaid'))
+                    && request.resource.data.paymentMethod in ['cash_on_delivery', 'pay_at_store', 'mock_card']
+                    && request.resource.data.fulfillmentType in ['delivery', 'pickup']
+                    && request.resource.data.recipientName is string
+                    && request.resource.data.recipientName.size() > 0
+                    && request.resource.data.customerPhone is string
+                    && request.resource.data.customerPhone.size() > 0
+                    && (request.resource.data.fulfillmentType == 'pickup'
+                        || (request.resource.data.deliveryAddress is string
+                            && request.resource.data.deliveryAddress.size() > 0))
+                    && request.resource.data.quantity is int
+                    && request.resource.data.quantity > 0
+                    && (request.resource.data.price is int || request.resource.data.price is float)
+                    && request.resource.data.price >= 0
+                    && request.resource.data.createdAt is int
+                    && request.resource.data.approvalDeadlineAt is int
+                    && request.resource.data.approvalDeadlineAt == request.resource.data.createdAt + 1800000
+                    && request.resource.data.itemId is string
+                    && request.resource.data.merchantId is string
+                    && request.resource.data.merchantId != ''
+                    && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.merchantId == request.resource.data.merchantId
+                    && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.title == request.resource.data.itemTitle
+                    && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.price == request.resource.data.price
+                    && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.isActive == true
+                    && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.stock >= request.resource.data.quantity
+                    && getAfter(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.stock
+                       == get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.stock - request.resource.data.quantity;
+
+      allow update: if request.auth != null
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                      'status', 'paymentStatus', 'refundAt', 'cancelledAt', 'cancellationReason'
+                    ])
+                    && ((request.auth.uid == resource.data.customerId
+                         && resource.data.status == 'pending'
+                         && request.resource.data.status == 'cancelled'
+                         && request.resource.data.cancelledAt is int
+                         && request.resource.data.cancellationReason == 'customer_cancelled'
+                         && ((resource.data.paymentStatus == 'demo_paid'
+                              && request.resource.data.paymentStatus == 'demo_refunded'
+                              && request.resource.data.refundAt is int
+                              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'paymentStatus', 'refundAt', 'cancelledAt', 'cancellationReason']))
+                             || (resource.data.paymentStatus != 'demo_paid'
+                                 && request.resource.data.paymentStatus == resource.data.paymentStatus
+                                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancellationReason']))))
+                        || (request.auth.uid == resource.data.merchantId
+                            && ((resource.data.status == 'pending'
+                                 && ((request.resource.data.status == 'preparing'
+                                      && (resource.data.paymentMethod != 'mock_card'
+                                          || resource.data.paymentStatus == 'demo_paid'))
+                                     || (request.resource.data.status == 'confirmed'
+                                         && resource.data.paymentMethod == 'mock_card'
+                                         && resource.data.paymentStatus == 'demo_paid')))
+                                || (resource.data.status == 'confirmed'
+                                    && request.resource.data.status == 'preparing'
+                                    && (resource.data.paymentMethod != 'mock_card'
+                                        || resource.data.paymentStatus == 'demo_paid'))
+                                || (resource.data.status == 'preparing' && request.resource.data.status == 'ready')
+                                || (resource.data.status == 'ready'
+                                    && ((resource.data.fulfillmentType == 'delivery' && request.resource.data.status == 'out_for_delivery')
+                                        || (resource.data.fulfillmentType == 'pickup' && request.resource.data.status == 'delivered')))
+                                || (resource.data.status == 'out_for_delivery' && request.resource.data.status == 'delivered')
+                                || (resource.data.status in ['pending', 'confirmed']
+                                    && request.resource.data.status == 'cancelled'
+                                    && request.resource.data.cancelledAt is int
+                                    && request.resource.data.cancellationReason == 'merchant_cancelled'
+                                    && ((resource.data.paymentStatus == 'demo_paid'
+                                         && request.resource.data.paymentStatus == 'demo_refunded'
+                                         && request.resource.data.refundAt is int)
+                                        || (resource.data.paymentStatus != 'demo_paid'
+                                            && request.resource.data.paymentStatus == resource.data.paymentStatus))))));
+      allow delete: if false;
+    }
+
+    // Hizmetler Koleksiyonu
+    match /services/{serviceId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'MERCHANT'
+                    && request.resource.data.merchantId == request.auth.uid
+                    && request.resource.data.depositAmount is number
+                    && request.resource.data.depositAmount >= 0
+                    && request.resource.data.depositAmount <= request.resource.data.price * 0.5;
+      allow update: if request.auth != null
+                    && resource.data.merchantId == request.auth.uid
+                    && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'MERCHANT'
+                    && request.resource.data.merchantId == resource.data.merchantId
+                    && request.resource.data.depositAmount is number
+                    && request.resource.data.depositAmount >= 0
+                    && request.resource.data.depositAmount <= request.resource.data.price * 0.5;
+      allow delete: if request.auth != null
+                    && resource.data.merchantId == request.auth.uid
+                    && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'MERCHANT';
+    }
+
+    // Randevular: yalnızca müşteri ve ilgili esnaf okuyabilir.
+    match /appointments/{appointmentId} {
+      allow read: if request.auth != null
+                  && (request.auth.uid == resource.data.customerId
+                      || request.auth.uid == resource.data.merchantId);
+
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasOnly([
+                      'customerId', 'customerEmail', 'merchantId', 'serviceId', 'serviceTitle',
+                      'price', 'depositAmount', 'depositPaidAt', 'date', 'time', 'note', 'status', 'createdAt', 'recipientName',
+                      'customerPhone', 'serviceLocation', 'serviceAddress', 'depositPaymentStatus',
+                      'depositRefundAt', 'balancePaymentStatus', 'balancePaymentRequestedAt', 'balancePaidAt',
+                      'cancelledAt', 'cancellationReason'
+                    ])
+                    && request.resource.data.customerId == request.auth.uid
+                    && request.resource.data.status == 'pending'
+                    && ((request.resource.data.depositAmount > 0
+                         && request.resource.data.depositPaymentStatus == 'demo_paid'
+                         && request.resource.data.depositPaidAt is int)
+                        || (request.resource.data.depositAmount == 0
+                            && request.resource.data.depositPaymentStatus == 'not_required'
+                            && request.resource.data.depositPaidAt == null))
+                    && request.resource.data.balancePaymentStatus == 'unpaid'
+                    && request.resource.data.recipientName is string
+                    && request.resource.data.recipientName.size() > 0
+                    && request.resource.data.customerPhone is string
+                    && request.resource.data.customerPhone.size() > 0
+                    && request.resource.data.serviceLocation in ['at_business', 'at_customer']
+                    && (request.resource.data.serviceLocation == 'at_business'
+                        || (request.resource.data.serviceAddress is string
+                            && request.resource.data.serviceAddress.size() > 0))
+                    && request.resource.data.serviceId is string
+                    && request.resource.data.depositAmount is number
+                    && request.resource.data.depositAmount >= 0
+                    && request.resource.data.depositAmount <= request.resource.data.price * 0.5
+                    && get(/databases/$(database)/documents/services/$(request.resource.data.serviceId)).data.merchantId == request.resource.data.merchantId
+                    && get(/databases/$(database)/documents/services/$(request.resource.data.serviceId)).data.title == request.resource.data.serviceTitle
+                    && get(/databases/$(database)/documents/services/$(request.resource.data.serviceId)).data.price == request.resource.data.price
+                    && ((('depositAmount' in get(/databases/$(database)/documents/services/$(request.resource.data.serviceId)).data)
+                         && get(/databases/$(database)/documents/services/$(request.resource.data.serviceId)).data.depositAmount == request.resource.data.depositAmount)
+                        || (!('depositAmount' in get(/databases/$(database)/documents/services/$(request.resource.data.serviceId)).data)
+                            && request.resource.data.depositAmount == 0))
+                    && get(/databases/$(database)/documents/services/$(request.resource.data.serviceId)).data.isActive == true
+                    && get(/databases/$(database)/documents/users/$(request.resource.data.merchantId)).data.role == 'MERCHANT';
+
+      allow update: if request.auth != null
+                    && ((request.auth.uid == resource.data.customerId
+                         && resource.data.status == 'approved'
+                         && resource.data.depositPaymentStatus == 'unpaid'
+                         && resource.data.depositAmount > 0
+                         && request.resource.data.depositPaymentStatus == 'demo_paid'
+                         && request.resource.data.depositPaidAt is int
+                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['depositPaymentStatus', 'depositPaidAt']))
+                         || (request.auth.uid == resource.data.customerId
+                             && resource.data.status in ['pending', 'approved']
+                             && request.resource.data.status == 'cancelled'
+                             && request.resource.data.cancelledAt is int
+                             && request.resource.data.cancellationReason == 'customer_cancelled'
+                             && ((resource.data.depositPaymentStatus == 'demo_paid'
+                                  && request.resource.data.depositPaymentStatus == 'demo_refunded'
+                                  && request.resource.data.depositRefundAt is int
+                                  && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancellationReason', 'depositPaymentStatus', 'depositRefundAt']))
+                                 || (resource.data.depositPaymentStatus != 'demo_paid'
+                                     && request.resource.data.depositPaymentStatus == resource.data.depositPaymentStatus
+                                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancellationReason']))))
+                        || (request.auth.uid == resource.data.customerId
+                            && resource.data.status == 'service_completed'
+                            && resource.data.balancePaymentStatus == 'requested'
+                            && request.resource.data.status == 'completed'
+                            && request.resource.data.balancePaymentStatus == 'demo_paid'
+                            && request.resource.data.balancePaidAt is int
+                            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'balancePaymentStatus', 'balancePaidAt']))
+                        || (request.auth.uid == resource.data.merchantId
+                            && ((resource.data.status == 'pending'
+                                 && request.resource.data.status in ['approved', 'rejected']
+                                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']))
+                                || (resource.data.status == 'approved'
+                                    && request.resource.data.status == 'service_completed'
+                                    && resource.data.depositPaymentStatus in ['not_required', 'demo_paid', 'cash_paid']
+                                    && request.resource.data.balancePaymentStatus == 'requested'
+                                    && request.resource.data.balancePaymentRequestedAt is int
+                                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'balancePaymentStatus', 'balancePaymentRequestedAt']))
+                                || (resource.data.status in ['approved', 'service_completed']
+                                    && request.resource.data.status == 'completed'
+                                    && resource.data.depositPaymentStatus in ['not_required', 'demo_paid', 'cash_paid']
+                                    && request.resource.data.balancePaymentStatus == 'cash_paid'
+                                    && request.resource.data.balancePaidAt is int
+                                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'balancePaymentStatus', 'balancePaidAt'])))));
+
+      allow delete: if false;
+    }
+
+    // Esnafa ulaş sohbeti: mesajlarda kullanıcı profili yerine yalnızca taraf UID'leri bulunur.
+    match /merchant_messages/{messageId} {
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasOnly([
+                      'senderId', 'customerId', 'merchantId', 'message', 'createdAt',
+                      'attachmentUrl', 'attachmentPath', 'attachmentName',
+                      'attachmentMimeType', 'attachmentType', 'attachmentSizeBytes'
+                    ])
+                    && request.resource.data.keys().hasAll([
+                      'senderId', 'customerId', 'merchantId', 'message', 'createdAt'
+                    ])
+                    && request.resource.data.senderId == request.auth.uid
+                    && request.resource.data.customerId is string
+                    && request.resource.data.customerId != ''
+                    && request.resource.data.merchantId is string
+                    && request.resource.data.merchantId != ''
+                    && request.resource.data.message is string
+                    && request.resource.data.message.size() <= 2000
+                    && (request.resource.data.message.size() > 0
+                        || request.resource.data.attachmentUrl is string
+                        && request.resource.data.attachmentUrl.size() > 0)
+                    && ((request.auth.uid == request.resource.data.customerId
+                         && get(/databases/$(database)/documents/users/$(request.resource.data.merchantId)).data.role == 'MERCHANT')
+                        || request.auth.uid == request.resource.data.merchantId)
+                    && (!('attachmentUrl' in request.resource.data)
+                        || (request.resource.data.attachmentUrl is string
+                            && request.resource.data.attachmentUrl.size() <= 2000
+                            && request.resource.data.attachmentPath is string
+                            && request.resource.data.attachmentPath.size() <= 300
+                            && request.resource.data.attachmentName is string
+                            && request.resource.data.attachmentName.size() <= 120
+                            && request.resource.data.attachmentMimeType is string
+                            && request.resource.data.attachmentMimeType.size() <= 120
+                            && request.resource.data.attachmentType in ['image', 'video', 'file']
+                            && request.resource.data.attachmentSizeBytes is int
+                            && request.resource.data.attachmentSizeBytes <= 104857600
+                            && (request.resource.data.attachmentType == 'video'
+                                || request.resource.data.attachmentSizeBytes <= 26214400)))
+
+      allow read: if request.auth != null
+                  && (request.auth.uid == resource.data.merchantId
+                      || request.auth.uid == resource.data.customerId
+                      || (!('customerId' in resource.data) && request.auth.uid == resource.data.senderId));
+      allow update, delete: if false;
+    }
+
+    // Destek Talepleri
+    match /support_tickets/{ticketId} {
+      allow create: if request.auth != null;
+      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.uid;
+    }
+  }
+}

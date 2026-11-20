@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Dükkan Çatısı / Tente Vurgusu (Kiremit & Gökyüzü Mavisi) -->
+    <path
+        android:fillColor="#E77B55"
+        android:pathData="M24,36 L84,36 L78,28 L30,28 Z" />
+    <path
+        android:fillColor="#65BCEB"
+        android:pathData="M24,36 L36,46 L48,36 L60,46 L72,36 L84,46 L84,36 Z" />
+    <path
+        android:fillColor="#2CB7A5"
+        android:pathData="M36,46 L48,36 L60,46 Z" />
+
+    <!-- Dükkan Duvarı ve Kapısı -->
+    <path
+        android:fillColor="#243746"
+        android:pathData="M28,46 L80,46 L80,82 L28,82 Z" />
+    <path
+        android:fillColor="#FFF8ED"
+        android:pathData="M44,56 L64,56 L64,82 L44,82 Z" />
+
+    <!-- Tabela & Sohbet / Mahalle Detayı -->
+    <path
+        android:fillColor="#2CB7A5"
+        android:pathData="M48,64 L60,64 L60,78 L48,78 Z" />
+</vector>
