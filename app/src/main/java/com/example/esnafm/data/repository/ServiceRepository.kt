@@ -19,12 +19,34 @@ class ServiceRepository(
 ) {
     private val servicesCollection = firestore.collection("services")
 
+    suspend fun getServiceById(serviceId: String): Result<ServiceModel> = withContext(Dispatchers.IO) {
+        try {
+            require(serviceId.isNotBlank()) { "Hizmet kimliği boş olamaz." }
+            val snapshot = servicesCollection.document(serviceId).get().await()
+            val data = snapshot.data ?: error("Hizmet bulunamadı.")
+            Result.success(ServiceModel.fromMap(snapshot.id, data))
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
+    suspend fun getMerchantServices(merchantId: String): Result<List<ServiceModel>> = withContext(Dispatchers.IO) {
+        try {
+            require(merchantId.isNotBlank()) { "İşletme kimliği boş olamaz." }
+            val snapshot = servicesCollection.whereEqualTo("merchantId", merchantId).limit(200).get().await()
+            Result.success(snapshot.documents.mapNotNull { doc -> doc.data?.let { ServiceModel.fromMap(doc.id, it) } })
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
     /**
      * "services" koleksiyonunu gerçek zamanlı (Snapshot Listener) dinleyen Flow.
      */
     fun getServicesFlow(): Flow<List<ServiceModel>> = callbackFlow {
         val listenerRegistration = servicesCollection
             .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(200)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     close(error)
@@ -43,6 +65,27 @@ class ServiceRepository(
         awaitClose {
             listenerRegistration.remove()
         }
+    }.flowOn(Dispatchers.IO)
+
+    fun getMerchantServicesFlow(merchantId: String): Flow<List<ServiceModel>> = callbackFlow {
+        if (merchantId.isBlank()) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+        val registration = servicesCollection
+            .whereEqualTo("merchantId", merchantId)
+            .limit(200)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    trySend(snapshot.documents.mapNotNull { doc -> doc.data?.let { ServiceModel.fromMap(doc.id, it) } })
+                }
+            }
+        awaitClose { registration.remove() }
     }.flowOn(Dispatchers.IO)
 
     /**

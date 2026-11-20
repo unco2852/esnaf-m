@@ -1,5 +1,8 @@
 package com.example.esnafm
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.os.Build
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
@@ -16,6 +19,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         FirebaseAppCheckInitializer.initialize()
+        createNotificationChannel()
         
         // Donanım pencere düzeni performans iyileştirmesi
         enableEdgeToEdge()
@@ -29,6 +33,17 @@ class MainActivity : AppCompatActivity() {
                     AppNavigation()
                 }
             }
+        }
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                "esnafm_updates",
+                "Sipariş, randevu ve mesajlar",
+                NotificationManager.IMPORTANCE_DEFAULT
+            )
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 }

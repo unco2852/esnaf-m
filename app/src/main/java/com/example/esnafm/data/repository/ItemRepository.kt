@@ -19,6 +19,27 @@ class ItemRepository(
 ) {
     private val itemsCollection = firestore.collection("items")
 
+    suspend fun getItemById(itemId: String): Result<ItemModel> = withContext(Dispatchers.IO) {
+        try {
+            require(itemId.isNotBlank()) { "Ürün kimliği boş olamaz." }
+            val snapshot = itemsCollection.document(itemId).get().await()
+            val data = snapshot.data ?: error("Ürün bulunamadı.")
+            Result.success(ItemModel.fromMap(snapshot.id, data))
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
+    suspend fun getMerchantItems(merchantId: String): Result<List<ItemModel>> = withContext(Dispatchers.IO) {
+        try {
+            require(merchantId.isNotBlank()) { "İşletme kimliği boş olamaz." }
+            val snapshot = itemsCollection.whereEqualTo("merchantId", merchantId).limit(200).get().await()
+            Result.success(snapshot.documents.mapNotNull { doc -> doc.data?.let { ItemModel.fromMap(doc.id, it) } })
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
     /**
      * "items" koleksiyonunu gerçek zamanlı (Snapshot Listener) dinleyen Flow.
      * Veritabanında ürün eklendiğinde, silindiğinde veya güncellendiğinde otomatik tetiklenir.
@@ -26,6 +47,7 @@ class ItemRepository(
     fun getItemsFlow(): Flow<List<ItemModel>> = callbackFlow {
         val listenerRegistration = itemsCollection
             .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(200)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     // Yedeğe geç: orderBy olmadan dinle
@@ -45,6 +67,27 @@ class ItemRepository(
         awaitClose {
             listenerRegistration.remove()
         }
+    }.flowOn(Dispatchers.IO)
+
+    fun getMerchantItemsFlow(merchantId: String): Flow<List<ItemModel>> = callbackFlow {
+        if (merchantId.isBlank()) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+        val registration = itemsCollection
+            .whereEqualTo("merchantId", merchantId)
+            .limit(200)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    trySend(snapshot.documents.mapNotNull { doc -> doc.data?.let { ItemModel.fromMap(doc.id, it) } })
+                }
+            }
+        awaitClose { registration.remove() }
     }.flowOn(Dispatchers.IO)
 
     /**
@@ -67,7 +110,7 @@ class ItemRepository(
      */
     suspend fun getItems(): Result<List<ItemModel>> = withContext(Dispatchers.IO) {
         try {
-            val snapshot = itemsCollection.get().await()
+            val snapshot = itemsCollection.orderBy("createdAt", Query.Direction.DESCENDING).limit(200).get().await()
             val itemsList = snapshot.documents.mapNotNull { doc ->
                 doc.data?.let { data ->
                     ItemModel.fromMap(doc.id, data)

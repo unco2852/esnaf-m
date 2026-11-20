@@ -43,7 +43,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -61,11 +61,11 @@ import coil.compose.AsyncImage
 import com.example.esnafm.data.model.ItemModel
 import com.example.esnafm.data.model.UserProfile
 import com.example.esnafm.data.repository.AddressRepository
+import com.example.esnafm.data.repository.AuthRepository
+import com.example.esnafm.data.repository.ItemRepository
 import com.example.esnafm.data.repository.OrderRepository
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 /**
  * Ürün Detay Ekranı
@@ -90,24 +90,17 @@ fun ProductDetailScreen(
     var orderQuantity by remember(productId) { mutableIntStateOf(1) }
     val orderRepository = remember { OrderRepository() }
     val addressRepository = remember { AddressRepository() }
+    val authRepository = remember { AuthRepository() }
+    val itemRepository = remember { ItemRepository() }
     val currentUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
     val savedAddresses by remember(currentUserId) { addressRepository.getUserAddressesFlow(currentUserId) }
-        .collectAsState(initial = emptyList())
+        .collectAsStateWithLifecycle(initialValue = emptyList())
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(currentUserId) {
         customerProfile = null
         if (currentUserId.isNotBlank()) {
-            try {
-                val userSnapshot = FirebaseFirestore.getInstance()
-                    .collection("users")
-                    .document(currentUserId)
-                    .get()
-                    .await()
-                customerProfile = userSnapshot.data?.let { UserProfile.fromMap(it) }
-            } catch (_: Exception) {
-                // Saved addresses and Firebase Auth fields remain available as fallbacks.
-            }
+            customerProfile = authRepository.getUserProfile(currentUserId).getOrNull()
         }
     }
 
@@ -121,23 +114,17 @@ fun ProductDetailScreen(
         try {
             isLoading = true
             errorMessage = null
-            val db = FirebaseFirestore.getInstance()
-
-            // 1. Ürün Belgesini Çek
-            val docSnapshot = db.collection("items").document(productId).get().await()
-            if (docSnapshot.exists() && docSnapshot.data != null) {
-                val item = ItemModel.fromMap(docSnapshot.id, docSnapshot.data!!)
+            val itemResult = itemRepository.getItemById(productId)
+            if (itemResult.isSuccess) {
+                val item = itemResult.getOrThrow()
                 itemModel = item
 
                 // 2. İlgili Esnaf Profilini Çek
                 if (item.merchantId.isNotBlank()) {
-                    val userDoc = db.collection("users").document(item.merchantId).get().await()
-                    if (userDoc.exists() && userDoc.data != null) {
-                        merchantProfile = UserProfile.fromMap(userDoc.data!!)
-                    }
+                    merchantProfile = authRepository.getPublicMerchantProfile(item.merchantId).getOrNull()
                 }
             } else {
-                errorMessage = "Ürün veritabanında bulunamadı."
+                errorMessage = itemResult.exceptionOrNull()?.localizedMessage ?: "Ürün bulunamadı."
             }
 
             isLoading = false

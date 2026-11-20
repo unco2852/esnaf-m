@@ -3,6 +3,7 @@ package com.example.esnafm.data.repository
 import com.example.esnafm.data.model.AppointmentModel
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.DocumentReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -31,6 +32,7 @@ class AppointmentRepository(
 
         val listenerRegistration = appointmentsCollection
             .whereEqualTo("customerId", customerId)
+            .limit(200)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     close(error)
@@ -61,6 +63,7 @@ class AppointmentRepository(
 
         val listenerRegistration = appointmentsCollection
             .whereEqualTo("merchantId", merchantId)
+            .limit(200)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     close(error)
@@ -84,10 +87,33 @@ class AppointmentRepository(
      */
     suspend fun createAppointment(appointment: AppointmentModel): Result<String> = withContext(Dispatchers.IO) {
         try {
+            require(appointment.date.matches(Regex("^\\d{4}-\\d{2}-\\d{2}$"))) { "Randevu tarihi geçersiz." }
+            require(appointment.time.matches(Regex("^\\d{2}:\\d{2}$"))) { "Randevu saati geçersiz." }
+            require(appointment.merchantId.isNotBlank() && appointment.customerId.isNotBlank()) { "Randevu bilgileri eksik." }
             val docRef = appointmentsCollection.document()
             val newAppointment = appointment.copy(id = docRef.id)
-            docRef.set(newAppointment.toMap()).await()
-            Result.success(docRef.id)
+            val dateKey = appointment.date.filter(Char::isDigit)
+            val timeKey = appointment.time.filter(Char::isDigit)
+            val slotRef = slotReference(appointment.merchantId, dateKey, timeKey)
+            val resultId = firestore.runTransaction { transaction ->
+                val existingSlot = transaction.get(slotRef)
+                require(!existingSlot.exists()) { "Bu saat az önce başka bir müşteri tarafından alındı. Lütfen başka saat seçin." }
+
+                val slotData = mapOf(
+                    "appointmentId" to docRef.id,
+                    "customerId" to appointment.customerId,
+                    "merchantId" to appointment.merchantId,
+                    "serviceId" to appointment.serviceId,
+                    "date" to appointment.date,
+                    "time" to appointment.time,
+                    "slotDateKey" to dateKey,
+                    "slotTimeKey" to timeKey
+                )
+                transaction.set(slotRef, slotData)
+                transaction.set(docRef, newAppointment.toMap() + mapOf("slotDateKey" to dateKey, "slotTimeKey" to timeKey))
+                docRef.id
+            }.await()
+            Result.success(resultId)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -100,9 +126,20 @@ class AppointmentRepository(
         try {
             require(appointmentId.isNotBlank()) { "Randevu ID boş olamaz." }
             require(newStatus in setOf("approved", "rejected")) { "Randevu durumu geçersiz." }
-            appointmentsCollection.document(appointmentId)
-                .update("status", newStatus)
-                .await()
+            val uid = FirebaseAuth.getInstance().currentUser?.uid ?: error("Oturum bulunamadı.")
+            val appointmentRef = appointmentsCollection.document(appointmentId)
+            firestore.runTransaction { transaction ->
+                val snapshot = transaction.get(appointmentRef)
+                val data = snapshot.data ?: error("Randevu bulunamadı.")
+                require(data["merchantId"] == uid) { "Bu randevuyu güncelleme yetkiniz yok." }
+                require(data["status"] == "pending") { "Yalnızca bekleyen randevular güncellenebilir." }
+                val slotRef = slotReference(data)
+                val slotSnapshot = slotRef?.let(transaction::get)
+                transaction.update(appointmentRef, "status", newStatus)
+                if (newStatus == "rejected" && slotRef != null && slotSnapshot?.exists() == true) {
+                    transaction.delete(slotRef)
+                }
+            }.await()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -126,6 +163,8 @@ class AppointmentRepository(
                 }
 
                 val now = System.currentTimeMillis()
+                val slotRef = slotReference(data)
+                val slotSnapshot = slotRef?.let(transaction::get)
                 val updates = mutableMapOf<String, Any>(
                     "status" to "cancelled",
                     "cancelledAt" to now,
@@ -136,6 +175,7 @@ class AppointmentRepository(
                     updates["depositRefundAt"] = now
                 }
                 transaction.update(appointmentRef, updates)
+                if (slotRef != null && slotSnapshot?.exists() == true) transaction.delete(slotRef)
             }.await()
             Result.success(Unit)
         } catch (e: Exception) {
@@ -179,11 +219,14 @@ class AppointmentRepository(
                 require(appointment.status == "service_completed" && appointment.balancePaymentStatus == "requested") {
                     "Esnaf henüz kalan ödeme talebi göndermedi."
                 }
+                val slotRef = slotReference(data)
+                val slotSnapshot = slotRef?.let(tx::get)
                 tx.update(ref, mapOf(
                     "status" to "completed",
                     "balancePaymentStatus" to "demo_paid",
                     "balancePaidAt" to System.currentTimeMillis()
                 ))
+                if (slotRef != null && slotSnapshot?.exists() == true) tx.delete(slotRef)
             }.await()
             Result.success(Unit)
         } catch (e: Exception) {
@@ -233,15 +276,34 @@ class AppointmentRepository(
                 require(appointment.depositPaymentStatus in setOf("not_required", "demo_paid", "cash_paid")) {
                     "Hizmet tamamlanmadan önce depozito demo olarak işlenmelidir."
                 }
+                val slotRef = slotReference(data)
+                val slotSnapshot = slotRef?.let(tx::get)
                 tx.update(ref, mapOf(
                     "status" to "completed",
                     "balancePaymentStatus" to "cash_paid",
                     "balancePaidAt" to System.currentTimeMillis()
                 ))
+                if (slotRef != null && slotSnapshot?.exists() == true) tx.delete(slotRef)
             }.await()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    private fun slotReference(merchantId: String, dateKey: String, timeKey: String): DocumentReference =
+        firestore.collection("appointment_slots")
+            .document(merchantId)
+            .collection("days")
+            .document(dateKey)
+            .collection("times")
+            .document(timeKey)
+
+    private fun slotReference(appointmentData: Map<String, Any?>): DocumentReference? {
+        val merchantId = appointmentData["merchantId"] as? String ?: return null
+        val dateKey = appointmentData["slotDateKey"] as? String ?: return null
+        val timeKey = appointmentData["slotTimeKey"] as? String ?: return null
+        if (merchantId.isBlank() || dateKey.isBlank() || timeKey.isBlank()) return null
+        return slotReference(merchantId, dateKey, timeKey)
     }
 }

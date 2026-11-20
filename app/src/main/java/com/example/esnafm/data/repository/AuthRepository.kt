@@ -2,9 +2,11 @@ package com.example.esnafm.data.repository
 
 import com.example.esnafm.data.model.UserProfile
 import com.example.esnafm.data.model.UserRole
+import com.example.esnafm.notifications.NotificationTokenId
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -47,9 +49,11 @@ class AuthRepository {
         businessDescription: String = "",
         workingHours: String = "09:00 - 18:00"
     ): Result<UserProfile> = withContext(Dispatchers.IO) {
+        var createdUser: FirebaseUser? = null
         try {
             val authResult = auth.createUserWithEmailAndPassword(email, pass).await()
             val uid = authResult.user?.uid ?: throw Exception("Kullanıcı kimliği alınamadı.")
+            createdUser = authResult.user
 
             val profile = UserProfile(
                 uid = uid,
@@ -68,13 +72,23 @@ class AuthRepository {
                 workingHours = workingHours.ifBlank { "09:00 - 18:00" }
             )
 
-            firestore.collection("users")
-                .document(uid)
-                .set(profile.toMap())
-                .await()
+            val batch = firestore.batch()
+            batch.set(firestore.collection("users").document(uid), profile.toMap())
+            if (role == UserRole.MERCHANT) {
+                batch.set(firestore.collection("public_merchants").document(uid), profile.toPublicMerchantMap())
+            }
+            batch.commit().await()
+            if (role == UserRole.CUSTOMER || role == UserRole.MERCHANT) {
+                runCatching { registerNotificationToken(uid) }
+            }
 
             Result.success(profile)
         } catch (e: Exception) {
+            // Avoid leaving an Auth account with no usable Firestore profile after a failed signup.
+            if (createdUser != null) {
+                runCatching { createdUser?.delete()?.await() }
+                auth.signOut()
+            }
             Result.failure(e)
         }
     }
@@ -91,12 +105,9 @@ class AuthRepository {
         try {
             val authResult = auth.signInWithEmailAndPassword(email, pass).await()
             val uid = authResult.user?.uid ?: throw Exception("Giriş yapılamadı.")
-            android.util.Log.d("EsnafmAuthDebug", "3. AuthRepository.signIn - Firebase Auth UID: '$uid', expectedRole: '$expectedRole'")
-
             val profileResult = getUserProfile(uid)
             if (profileResult.isSuccess) {
                 var fetchedProfile = profileResult.getOrThrow()
-                android.util.Log.d("EsnafmAuthDebug", "6. AuthRepository.signIn - Fetched Profile UID: '${fetchedProfile.uid}', Role: '${fetchedProfile.role}'")
 
                 // Rol Doğrulaması & Otomatik Onarım: İşletme detayları olan kullanıcı Esnaf olarak onarılır
                 if (expectedRole == UserRole.MERCHANT && fetchedProfile.role != UserRole.MERCHANT && fetchedProfile.businessName.isNotBlank()) {
@@ -110,19 +121,19 @@ class AuthRepository {
 
                 if (expectedRole != null && fetchedProfile.role != expectedRole) {
                     val actualRoleName = if (fetchedProfile.role == UserRole.MERCHANT) "Esnaf" else "Müşteri"
-                    android.util.Log.d("EsnafmAuthDebug", "6b. AuthRepository.signIn - ROLE MISMATCH! Actual: ${fetchedProfile.role}, Expected: $expectedRole")
+                    auth.signOut()
                     return@withContext Result.failure(
                         Exception("Bu hesap $actualRoleName hesabıdır. Lütfen $actualRoleName giriş kapısını kullanarak giriş yapınız.")
                     )
                 }
 
+                runCatching { registerNotificationToken(uid) }
+
                 Result.success(fetchedProfile)
             } else {
-                android.util.Log.d("EsnafmAuthDebug", "6c. AuthRepository.signIn - Profile not found in Firestore for UID: '$uid'")
                 Result.failure(Exception("Kullanıcı profili veritabanında bulunamadı. Lütfen önce kayıt olun."))
             }
         } catch (e: Exception) {
-            android.util.Log.d("EsnafmAuthDebug", "6d. AuthRepository.signIn - Error: ${e.localizedMessage}")
             Result.failure(e)
         }
     }
@@ -135,8 +146,6 @@ class AuthRepository {
         try {
             val snapshot = firestore.collection("users").document(uid).get().await()
             val exists = snapshot.exists() && snapshot.data != null
-            android.util.Log.d("EsnafmAuthDebug", "4. AuthRepository.getUserProfile - UID: '$uid', Document exists: $exists")
-
             if (exists) {
                 val rawData = snapshot.data!!
                 val profile = UserProfile.fromMap(rawData)
@@ -150,12 +159,20 @@ class AuthRepository {
                     }
                 }
 
+                // Existing merchants publish only the explicitly public listing fields.
+                // This also lets an existing merchant repair its public listing on next sign-in.
+                if (profile.role == UserRole.MERCHANT && uid == auth.currentUser?.uid) {
+                    firestore.collection("public_merchants")
+                        .document(uid)
+                        .set(profile.toPublicMerchantMap())
+                        .await()
+                }
+
                 Result.success(profile)
             } else {
                 Result.failure(Exception("Kullanıcı profili bulunamadı."))
             }
         } catch (e: Exception) {
-            android.util.Log.d("EsnafmAuthDebug", "4b. AuthRepository.getUserProfile - Exception for UID '$uid': ${e.localizedMessage}")
             Result.failure(e)
         }
     }
@@ -172,11 +189,30 @@ class AuthRepository {
             val updateMap = profile.toMap().toMutableMap()
             updateMap.remove("role")
 
-            firestore.collection("users")
-                .document(profile.uid)
-                .update(updateMap)
-                .await()
+            val batch = firestore.batch()
+            batch.update(firestore.collection("users").document(profile.uid), updateMap)
+            if (profile.role == UserRole.MERCHANT) {
+                batch.set(
+                    firestore.collection("public_merchants").document(profile.uid),
+                    profile.toPublicMerchantMap(),
+                    com.google.firebase.firestore.SetOptions.merge()
+                )
+            }
+            batch.commit().await()
 
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun setBusinessOpen(uid: String, isOpen: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            require(uid.isNotBlank() && uid == auth.currentUser?.uid) { "İşletme durumu yalnızca hesap sahibi tarafından değiştirilebilir." }
+            val batch = firestore.batch()
+            batch.update(firestore.collection("users").document(uid), "isBusinessOpen", isOpen)
+            batch.update(firestore.collection("public_merchants").document(uid), "isOpen", isOpen)
+            batch.commit().await()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -204,15 +240,10 @@ class AuthRepository {
             val user = auth.currentUser ?: throw Exception("Oturum açmış kullanıcı bulunamadı.")
             val uid = user.uid
 
-            // Firestore 'users' belgesini sil
-            try {
-                firestore.collection("users").document(uid).delete().await()
-            } catch (e: Exception) {
-                // Ignore document deletion failure if missing
-            }
-
-            // Firebase Auth hesabını sil
+            // Delete Auth first. A recent-login error must leave the profile intact.
+            // The auth onDelete Cloud Function removes the associated Firebase data.
             user.delete().await()
+            auth.signOut()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -220,11 +251,12 @@ class AuthRepository {
     }
 
     /**
-     * Firestore 'users' koleksiyonundan 'MERCHANT' rolüne sahip tüm esnafları canlı dinleyen Flow.
+     * Public listing documents contain only business-facing fields.
      */
     fun getMerchantsFlow(): Flow<List<UserProfile>> = callbackFlow {
-        val listenerRegistration = firestore.collection("users")
+        val listenerRegistration = firestore.collection("public_merchants")
             .whereEqualTo("role", UserRole.MERCHANT.name)
+            .limit(200)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     close(error)
@@ -232,7 +264,7 @@ class AuthRepository {
                 }
                 if (snapshot != null) {
                     val merchants = snapshot.documents.mapNotNull { doc ->
-                        doc.data?.let { data -> UserProfile.fromMap(data) }
+                        doc.data?.let { data -> UserProfile.fromPublicMerchantMap(data) }
                     }
                     trySend(merchants)
                 }
@@ -243,14 +275,41 @@ class AuthRepository {
         }
     }.flowOn(Dispatchers.IO)
 
+    suspend fun getPublicMerchantProfile(uid: String): Result<UserProfile> = withContext(Dispatchers.IO) {
+        try {
+            require(uid.isNotBlank()) { "İşletme kimliği boş olamaz." }
+            val snapshot = firestore.collection("public_merchants").document(uid).get().await()
+            val data = snapshot.data ?: error("İşletme profili bulunamadı.")
+            Result.success(UserProfile.fromPublicMerchantMap(data))
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
     /**
      * Mevcut oturumu kapatır.
      */
-    fun signOut() {
+    suspend fun signOut() = withContext(Dispatchers.IO) {
         try {
+            val uid = auth.currentUser?.uid
+            if (!uid.isNullOrBlank()) {
+                runCatching {
+                    val token = FirebaseMessaging.getInstance().token.await()
+                    firestore.collection("users").document(uid)
+                        .collection("notification_tokens").document(NotificationTokenId.from(token)).delete().await()
+                }
+            }
             auth.signOut()
         } catch (e: Exception) {
             // Sessizce yut
         }
+    }
+
+    private suspend fun registerNotificationToken(uid: String) {
+        val token = FirebaseMessaging.getInstance().token.await()
+        firestore.collection("users").document(uid)
+            .collection("notification_tokens").document(NotificationTokenId.from(token))
+            .set(mapOf("token" to token, "platform" to "android", "updatedAt" to System.currentTimeMillis()))
+            .await()
     }
 }

@@ -103,7 +103,8 @@ class TradesmanPanelViewModel(
                         businessDistrict = profile.district,
                         businessAddress = profile.businessAddress.ifBlank { profile.address },
                         businessPhone = profile.businessPhone.ifBlank { profile.phone },
-                        workingHours = profile.workingHours
+                        workingHours = profile.workingHours,
+                        isOpen = profile.isBusinessOpen
                     )
                 }
             }
@@ -111,41 +112,31 @@ class TradesmanPanelViewModel(
     }
 
     fun observeProducts() {
+        val currentMerchantId = authRepository.currentUser?.uid ?: return
         viewModelScope.launch {
-            itemRepository.getItemsFlow()
+            itemRepository.getMerchantItemsFlow(currentMerchantId)
                 .catch { error ->
                     _uiState.update { current ->
                         current.copy(statusMessage = "Ürünler yüklenemedi: ${error.localizedMessage}")
                     }
                 }
                 .collect { allItems ->
-                    val currentMerchantId = authRepository.currentUser?.uid
-                    val myProducts = if (!currentMerchantId.isNullOrBlank()) {
-                        allItems.filter { it.merchantId == currentMerchantId || it.merchantId.isBlank() }
-                    } else {
-                        allItems
-                    }
-                    _uiState.update { current -> current.copy(products = myProducts) }
+                    _uiState.update { current -> current.copy(products = allItems) }
                 }
         }
     }
 
     fun observeServices() {
+        val currentMerchantId = authRepository.currentUser?.uid ?: return
         viewModelScope.launch {
-            serviceRepository.getServicesFlow()
+            serviceRepository.getMerchantServicesFlow(currentMerchantId)
                 .catch { error ->
                     _uiState.update { current ->
                         current.copy(statusMessage = "Hizmetler yüklenemedi: ${error.localizedMessage}")
                     }
                 }
                 .collect { allServices ->
-                    val currentMerchantId = authRepository.currentUser?.uid
-                    val myServices = if (!currentMerchantId.isNullOrBlank()) {
-                        allServices.filter { it.merchantId == currentMerchantId || it.merchantId.isBlank() }
-                    } else {
-                        allServices
-                    }
-                    _uiState.update { current -> current.copy(services = myServices) }
+                    _uiState.update { current -> current.copy(services = allServices) }
                 }
         }
     }
@@ -157,7 +148,7 @@ class TradesmanPanelViewModel(
         val currentMerchantId = authRepository.currentUser?.uid ?: return
         viewModelScope.launch {
             appointmentRepository.getMerchantAppointmentsFlow(currentMerchantId)
-                .catch { /* Sessizce yut */ }
+                .catch { error -> _uiState.update { it.copy(statusMessage = "Randevular yüklenemedi: ${error.localizedMessage}") } }
                 .collect { list ->
                     _uiState.update { current -> current.copy(appointments = list) }
                 }
@@ -213,7 +204,20 @@ class TradesmanPanelViewModel(
     }
 
     fun toggleBusinessStatus() {
-        _uiState.update { it.copy(isOpen = !it.isOpen) }
+        val merchantId = authRepository.currentUser?.uid ?: return
+        val previous = _uiState.value.isOpen
+        val updated = !previous
+        _uiState.update { it.copy(isOpen = updated, statusMessage = null) }
+        viewModelScope.launch {
+            authRepository.setBusinessOpen(merchantId, updated).onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isOpen = previous,
+                        statusMessage = "İşletme durumu kaydedilemedi: ${error.localizedMessage}"
+                    )
+                }
+            }
+        }
     }
 
     fun openAddProductDialog(itemToEdit: ItemModel? = null) {

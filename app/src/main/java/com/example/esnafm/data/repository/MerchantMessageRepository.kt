@@ -7,10 +7,14 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
@@ -29,6 +33,7 @@ class MerchantMessageRepository(
 
         val registration = messages
             .whereEqualTo("merchantId", merchantId)
+            .limit(200)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     close(error)
@@ -38,7 +43,7 @@ class MerchantMessageRepository(
                     val latestFirst = snapshot.documents.mapNotNull { doc ->
                         doc.data?.let { MerchantMessageModel.fromMap(doc.id, it) }
                     }.sortedByDescending { it.createdAt }
-                    trySend(latestFirst)
+                    launch { trySend(resolveAttachmentUrls(latestFirst)) }
                 }
             }
 
@@ -60,6 +65,7 @@ class MerchantMessageRepository(
         val participantField = if (currentUserId == merchantId) "merchantId" else "customerId"
         val registration = messages
             .whereEqualTo(participantField, currentUserId)
+            .limit(200)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     close(error)
@@ -70,7 +76,7 @@ class MerchantMessageRepository(
                         doc.data?.let { MerchantMessageModel.fromMap(doc.id, it) }
                     }.filter { it.merchantId == merchantId && it.customerId == customerId }
                         .sortedBy { it.createdAt }
-                    trySend(conversation)
+                    launch { trySend(resolveAttachmentUrls(conversation)) }
                 }
             }
 
@@ -102,6 +108,24 @@ class MerchantMessageRepository(
                 if (attachmentMimeType.startsWith("video/")) "Videolar en fazla 100 MB olabilir." else "Fotoğraf ve dosyalar en fazla 25 MB olabilir."
             }
 
+            val conversationRef = firestore.collection("merchant_conversations")
+                .document("$merchantId--$customerId")
+            firestore.runTransaction { transaction ->
+                val conversation = transaction.get(conversationRef)
+                if (!conversation.exists()) {
+                    require(senderId == customerId) { "Sohbeti önce müşteri başlatmalıdır." }
+                    transaction.set(conversationRef, mapOf(
+                        "customerId" to customerId,
+                        "merchantId" to merchantId,
+                        "createdAt" to System.currentTimeMillis()
+                    ))
+                } else {
+                    require(conversation.getString("customerId") == customerId && conversation.getString("merchantId") == merchantId) {
+                        "Sohbet katılımcıları doğrulanamadı."
+                    }
+                }
+            }.await()
+
             val document = messages.document()
             var attachmentUrl = ""
             var attachmentPath = ""
@@ -115,7 +139,7 @@ class MerchantMessageRepository(
                 uploadedRef = storage.reference.child(attachmentPath)
                 val metadata = StorageMetadata.Builder().setContentType(mimeType).build()
                 uploadedRef.putFile(attachmentUri, metadata).await()
-                attachmentUrl = uploadedRef.downloadUrl.await().toString()
+                attachmentUrl = ""
             }
 
             val mimeType = attachmentMimeType.ifBlank { "" }
@@ -143,6 +167,19 @@ class MerchantMessageRepository(
             runCatching { uploadedRef?.delete()?.await() }
             Result.failure(e)
         }
+    }
+
+    private suspend fun resolveAttachmentUrls(messages: List<MerchantMessageModel>): List<MerchantMessageModel> = coroutineScope {
+        messages.map { message ->
+            async {
+                if (message.attachmentPath.isBlank()) message
+                else message.copy(
+                    attachmentUrl = runCatching {
+                        storage.reference.child(message.attachmentPath).downloadUrl.await().toString()
+                    }.getOrDefault("")
+                )
+            }
+        }.awaitAll()
     }
 
     companion object {

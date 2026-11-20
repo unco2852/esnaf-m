@@ -132,8 +132,6 @@ class AuthViewModel(
 
     fun submitForm(onSuccess: (UserProfile) -> Unit) {
         val state = _uiState.value
-        android.util.Log.d("EsnafmAuthDebug", "2. AuthViewModel.submitForm - state.role: '${state.role}', isLoginMode: ${state.isLoginMode}, email: '${state.email}'")
-
         if (state.email.isBlank() || state.password.isBlank()) {
             _uiState.update { it.copy(errorMessage = "Lütfen e-posta ve şifrenizi giriniz.") }
             return

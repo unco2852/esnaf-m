@@ -108,7 +108,6 @@ fun AppNavigation(
                     } else {
                         ScreenRoutes.CUSTOMER_HOME
                     }
-                    android.util.Log.d("EsnafmAuthDebug", "7. AppNavigation.onAuthSuccess - Profile UID: '${profile.uid}', Profile Role: '${profile.role}' -> Target Route: '$destination'")
                     navController.navigate(destination) {
                         popUpTo(ScreenRoutes.ROLE_SELECTION) { inclusive = true }
                     }

@@ -2,9 +2,20 @@ package com.example.esnafm.ui.customer
 
 import android.Manifest
 import com.example.esnafm.R
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +57,8 @@ import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -57,19 +70,18 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material.icons.filled.Chat
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -81,10 +93,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
@@ -124,7 +141,7 @@ fun CustomerHomeScreen(
     onNavigateToServiceDetail: (String) -> Unit = {},
     viewModel: CustomerHomeViewModel = viewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     var previousHistoryPage by remember { mutableStateOf<CustomerPreviousHistoryPage?>(null) }
     var demoPaymentRequest by remember { mutableStateOf<Pair<AppointmentModel, Boolean>?>(null) }
@@ -133,8 +150,9 @@ fun CustomerHomeScreen(
     var pendingAssistantQuery by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
-    BackHandler(enabled = previousHistoryPage != null) {
-        previousHistoryPage = null
+    BackHandler(enabled = previousHistoryPage != null || selectedTabIndex != 0) {
+        if (previousHistoryPage != null) previousHistoryPage = null
+        else selectedTabIndex = 0
     }
 
     fun submitAssistantQueryWithLocation(query: String) {
@@ -224,6 +242,49 @@ fun CustomerHomeScreen(
                     titleContentColor = DarkInk
                 )
             )
+        },
+        bottomBar = {
+            if (previousHistoryPage == null) {
+                NavigationBar(
+                    containerColor = LightBeige,
+                    contentColor = DarkInk,
+                    tonalElevation = 8.dp
+                ) {
+                    CustomerNavigationItem(
+                        selected = selectedTabIndex == 0,
+                        label = stringResource(R.string.tab_explore),
+                        icon = Icons.Default.Explore,
+                        onClick = { selectedTabIndex = 0 }
+                    )
+                    CustomerNavigationItem(
+                        selected = selectedTabIndex == 1,
+                        label = stringResource(R.string.tab_categories),
+                        icon = Icons.Default.Category,
+                        onClick = { selectedTabIndex = 1 }
+                    )
+                    CustomerNavigationItem(
+                        selected = selectedTabIndex == 2,
+                        label = stringResource(R.string.tab_my_appointments),
+                        icon = Icons.Default.DateRange,
+                        badgeCount = uiState.activeAppointments.size,
+                        onClick = { selectedTabIndex = 2 }
+                    )
+                    CustomerNavigationItem(
+                        selected = selectedTabIndex == 3,
+                        label = stringResource(R.string.tab_my_orders),
+                        icon = Icons.Default.ShoppingCart,
+                        badgeCount = uiState.activeOrders.size,
+                        onClick = { selectedTabIndex = 3 }
+                    )
+                    CustomerNavigationItem(
+                        selected = selectedTabIndex == 4,
+                        label = stringResource(R.string.tab_favorites),
+                        icon = Icons.Default.Favorite,
+                        badgeCount = uiState.favoriteMerchants.size,
+                        onClick = { selectedTabIndex = 4 }
+                    )
+                }
+            }
         }
     ) { innerPadding ->
         Box(
@@ -295,45 +356,23 @@ fun CustomerHomeScreen(
                     }
                 }
 
-                // Sekme Başlıkları: Keşfet, Kategoriler, Randevularım, Siparişlerim, Favoriler
-                ScrollableTabRow(
-                    selectedTabIndex = selectedTabIndex,
-                    edgePadding = 16.dp,
-                    containerColor = LightBeige
-                ) {
-                    Tab(
-                        selected = selectedTabIndex == 0,
-                        onClick = { selectedTabIndex = 0 },
-                        text = { Text(stringResource(R.string.tab_explore), color = DarkInk) },
-                        icon = { Icon(Icons.Default.Explore, contentDescription = null, tint = DarkInk) }
-                    )
-                    Tab(
-                        selected = selectedTabIndex == 1,
-                        onClick = { selectedTabIndex = 1 },
-                        text = { Text(stringResource(R.string.tab_categories), color = DarkInk) },
-                        icon = { Icon(Icons.Default.Category, contentDescription = null, tint = DarkInk) }
-                    )
-                    Tab(
-                        selected = selectedTabIndex == 2,
-                        onClick = { selectedTabIndex = 2 },
-                        text = { Text(stringResource(R.string.tab_my_appointments_count, uiState.activeAppointments.size), color = DarkInk) },
-                        icon = { Icon(Icons.Default.DateRange, contentDescription = null, tint = DarkInk) }
-                    )
-                    Tab(
-                        selected = selectedTabIndex == 3,
-                        onClick = { selectedTabIndex = 3 },
-                        text = { Text(stringResource(R.string.tab_my_orders_count, uiState.activeOrders.size), color = DarkInk) },
-                        icon = { Icon(Icons.Default.ShoppingCart, contentDescription = null, tint = DarkInk) }
-                    )
-                    Tab(
-                        selected = selectedTabIndex == 4,
-                        onClick = { selectedTabIndex = 4 },
-                        text = { Text(stringResource(R.string.tab_my_favorites_count, uiState.favoriteMerchants.size), color = DarkInk) },
-                        icon = { Icon(Icons.Default.Favorite, contentDescription = null, tint = DarkInk) }
-                    )
-                }
-
                 // Durum / Başarı Bildirimi Mesajı
+                uiState.errorMessage?.let { error ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Terracotta.copy(alpha = 0.12f))
+                    ) {
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DarkInk,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                }
                 if (uiState.bookingSuccessMessage != null) {
                     Card(
                         modifier = Modifier
@@ -353,12 +392,20 @@ fun CustomerHomeScreen(
                     }
                 }
 
-                // Sekme İçerikleri
-                when (selectedTabIndex) {
+                AnimatedContent(
+                    targetState = selectedTabIndex,
+                    transitionSpec = {
+                        (fadeIn() + slideInVertically(initialOffsetY = { it / 14 })) togetherWith
+                            (fadeOut() + slideOutVertically(targetOffsetY = { -it / 18 }))
+                    },
+                    label = "customer_navigation_transition"
+                ) { activeTab ->
+                when (activeTab) {
                     0 -> ExploreSection(
                         uiState = uiState,
                         onToggleFavorite = { viewModel.toggleFavorite(it) },
-                        onNavigateToMerchantDetail = onNavigateToMerchantDetail
+                        onNavigateToMerchantDetail = onNavigateToMerchantDetail,
+                        onOpenAssistant = { viewModel.openAssistant() }
                     )
                     1 -> CategoriesSection(
                         uiState = uiState,
@@ -386,6 +433,7 @@ fun CustomerHomeScreen(
                         onToggleFavorite = { viewModel.toggleFavorite(it) },
                         onNavigateToMerchantDetail = onNavigateToMerchantDetail
                     )
+                }
                 }
             }
             }
@@ -532,6 +580,57 @@ fun CustomerHomeScreen(
     }
 }
 
+@Composable
+private fun CustomerNavigationItem(
+    selected: Boolean,
+    label: String,
+    icon: ImageVector,
+    badgeCount: Int = 0,
+    onClick: () -> Unit
+) {
+    val iconScale by animateFloatAsState(
+        targetValue = if (selected) 1.12f else 1f,
+        animationSpec = spring(dampingRatio = 0.68f, stiffness = 480f),
+        label = "customer_navigation_icon_scale"
+    )
+
+    NavigationBarItem(
+        selected = selected,
+        onClick = onClick,
+        icon = {
+            BadgedBox(
+                badge = {
+                    if (badgeCount > 0) {
+                        Badge(containerColor = Terracotta, contentColor = WarmCream) {
+                            Text(if (badgeCount > 99) "99+" else badgeCount.toString())
+                        }
+                    }
+                }
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .graphicsLayer {
+                            scaleX = iconScale
+                            scaleY = iconScale
+                        }
+                )
+            }
+        },
+        label = { Text(label, maxLines = 1, style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp)) },
+        alwaysShowLabel = true,
+        colors = NavigationBarItemDefaults.colors(
+            selectedIconColor = Turquoise,
+            selectedTextColor = DarkInk,
+            indicatorColor = Turquoise.copy(alpha = 0.16f),
+            unselectedIconColor = DarkInk.copy(alpha = 0.68f),
+            unselectedTextColor = DarkInk.copy(alpha = 0.68f)
+        )
+    )
+}
+
 /**
  * 1. ALAN: Sadeleştirilmiş Keşfet Bölümü (AI Asistan ve Esnaf Odaklı - Ürün/Hizmet Kartları Olmadan)
  */
@@ -539,7 +638,8 @@ fun CustomerHomeScreen(
 private fun ExploreSection(
     uiState: CustomerUiState,
     onToggleFavorite: (String) -> Unit,
-    onNavigateToMerchantDetail: (String) -> Unit
+    onNavigateToMerchantDetail: (String) -> Unit,
+    onOpenAssistant: () -> Unit
 ) {
     val merchants = uiState.filteredMerchants
     val isSearchOrFilterActive = uiState.searchQuery.isNotBlank() || uiState.selectedCategory != "Tümü"
@@ -587,6 +687,9 @@ private fun ExploreSection(
             }
         } else {
             item {
+                ExploreWelcomeCard(onOpenAssistant = onOpenAssistant)
+            }
+            item {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "🏬 Çevrenizdeki Mahalle Esnafları (${merchants.size})",
@@ -605,6 +708,49 @@ private fun ExploreSection(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ExploreWelcomeCard(onOpenAssistant: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(Brush.linearGradient(listOf(Turquoise, Color(0xFF377B86))))
+            .padding(18.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Mahallende çözüm var ✨",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = Color.White
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "İhtiyacını anlat, Çırak sana yardımcı olsun.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.9f)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Button(
+                onClick = onOpenAssistant,
+                shape = RoundedCornerShape(50),
+                colors = ButtonDefaults.buttonColors(containerColor = WarmCream, contentColor = DarkInk),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Çırak'a sor", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
+            }
+        }
+        Icon(
+            imageVector = Icons.Default.Build,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.92f),
+            modifier = Modifier.size(48.dp).padding(start = 8.dp)
+        )
     }
 }
 
@@ -832,10 +978,23 @@ private fun RealMerchantCard(
     onToggleFavorite: () -> Unit,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val cardScale by animateFloatAsState(
+        targetValue = if (pressed) 0.985f else 1f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f),
+        label = "merchant_card_press_scale"
+    )
+    val publicAddress = merchant.businessAddress.ifBlank { merchant.address }
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() },
+            .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = onClick
+            ),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = LightBeige
@@ -866,11 +1025,19 @@ private fun RealMerchantCard(
             Spacer(modifier = Modifier.width(14.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = merchant.businessName.ifBlank { merchant.name },
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = DarkInk
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = merchant.businessName.ifBlank { merchant.name },
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = DarkInk
+                    )
+                    Text(
+                        text = if (merchant.isBusinessOpen) "Açık" else "Kapalı",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = if (merchant.isBusinessOpen) Turquoise else Terracotta
+                    )
+                }
                 if (merchant.category.isNotBlank()) {
                     Text(
                         text = merchant.category,
@@ -878,7 +1045,7 @@ private fun RealMerchantCard(
                         color = Turquoise
                     )
                 }
-                if (merchant.address.isNotBlank()) {
+                if (publicAddress.isNotBlank()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(top = 4.dp)
@@ -891,7 +1058,7 @@ private fun RealMerchantCard(
                         )
                         Spacer(modifier = Modifier.width(2.dp))
                         Text(
-                            text = merchant.address,
+                            text = publicAddress,
                             style = MaterialTheme.typography.labelSmall,
                             color = DarkInk.copy(alpha = 0.8f)
                         )

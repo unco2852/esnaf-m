@@ -10,6 +10,7 @@ import com.example.esnafm.data.model.UserProfile
 import com.example.esnafm.data.repository.AppointmentRepository
 import com.example.esnafm.data.repository.AuthRepository
 import com.example.esnafm.data.repository.ItemRepository
+import com.example.esnafm.data.repository.FavoriteRepository
 import com.example.esnafm.data.repository.OrderRepository
 import com.example.esnafm.data.repository.ServiceRepository
 import com.google.firebase.Firebase
@@ -197,7 +198,8 @@ class CustomerHomeViewModel(
     private val serviceRepository: ServiceRepository = ServiceRepository(),
     private val appointmentRepository: AppointmentRepository = AppointmentRepository(),
     private val orderRepository: OrderRepository = OrderRepository(),
-    private val authRepository: AuthRepository = AuthRepository()
+    private val authRepository: AuthRepository = AuthRepository(),
+    private val favoriteRepository: FavoriteRepository = FavoriteRepository()
 ) : ViewModel() {
 
     private val assistantCategories = listOf(
@@ -253,9 +255,7 @@ class CustomerHomeViewModel(
         observeRealMerchants()
         observeCustomerAppointments()
         observeCustomerOrders()
-        viewModelScope.launch {
-            com.example.esnafm.data.importer.FirestoreSeeder.seedDataIfNeeded()
-        }
+        observeFavorites()
     }
 
     private fun loadCategories() {
@@ -323,12 +323,21 @@ class CustomerHomeViewModel(
     fun observeRealMerchants() {
         viewModelScope.launch {
             authRepository.getMerchantsFlow()
-                .catch { /* Sessizce yut */ }
+                .catch { error -> _uiState.update { it.copy(errorMessage = "İşletmeler yüklenemedi: ${error.localizedMessage}") } }
                 .collect { merchantsList ->
                     _uiState.update { current ->
                         current.copy(realMerchants = merchantsList)
                     }
                 }
+        }
+    }
+
+    private fun observeFavorites() {
+        val uid = authRepository.currentUser?.uid ?: return
+        viewModelScope.launch {
+            favoriteRepository.observeFavorites(uid)
+                .catch { error -> _uiState.update { it.copy(errorMessage = "Favoriler yüklenemedi: ${error.localizedMessage}") } }
+                .collect { ids -> _uiState.update { it.copy(favoriteMerchantIds = ids) } }
         }
     }
 
@@ -339,7 +348,7 @@ class CustomerHomeViewModel(
         val currentUserId = authRepository.currentUser?.uid ?: return
         viewModelScope.launch {
             appointmentRepository.getCustomerAppointmentsFlow(currentUserId)
-                .catch { /* Sessizce yut */ }
+                .catch { error -> _uiState.update { it.copy(errorMessage = "Randevular yüklenemedi: ${error.localizedMessage}") } }
                 .collect { list ->
                     _uiState.update { it.copy(appointments = list) }
                 }
@@ -353,7 +362,7 @@ class CustomerHomeViewModel(
         val currentUserId = authRepository.currentUser?.uid ?: return
         viewModelScope.launch {
             orderRepository.getCustomerOrdersFlow(currentUserId)
-                .catch { /* Sessizce yut */ }
+                .catch { error -> _uiState.update { it.copy(errorMessage = "Siparişler yüklenemedi: ${error.localizedMessage}") } }
                 .collect { list ->
                     _uiState.update { it.copy(orders = list) }
                 }
@@ -945,14 +954,30 @@ class CustomerHomeViewModel(
             .replace("\\s+".toRegex(), " ")
 
     fun toggleFavorite(merchantId: String) {
+        val uid = authRepository.currentUser?.uid ?: return
+        if (merchantId.isBlank()) return
+        val shouldFavorite = merchantId !in _uiState.value.favoriteMerchantIds
         _uiState.update { currentState ->
             val currentFavorites = currentState.favoriteMerchantIds.toMutableSet()
-            if (currentFavorites.contains(merchantId)) {
-                currentFavorites.remove(merchantId)
-            } else {
+            if (shouldFavorite) {
                 currentFavorites.add(merchantId)
+            } else {
+                currentFavorites.remove(merchantId)
             }
             currentState.copy(favoriteMerchantIds = currentFavorites)
+        }
+        viewModelScope.launch {
+            favoriteRepository.setFavorite(uid, merchantId, shouldFavorite).onFailure { error ->
+                _uiState.update { current ->
+                    val restored = current.favoriteMerchantIds.toMutableSet().apply {
+                        if (shouldFavorite) remove(merchantId) else add(merchantId)
+                    }
+                    current.copy(
+                        favoriteMerchantIds = restored,
+                        errorMessage = "Favori güncellenemedi: ${error.localizedMessage}"
+                    )
+                }
+            }
         }
     }
 }

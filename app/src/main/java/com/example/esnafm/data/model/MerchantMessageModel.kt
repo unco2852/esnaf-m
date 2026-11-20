@@ -21,8 +21,7 @@ data class MerchantMessageModel(
         put("merchantId", merchantId)
         put("message", message)
         put("createdAt", createdAt)
-        if (attachmentUrl.isNotBlank()) {
-            put("attachmentUrl", attachmentUrl)
+        if (attachmentPath.isNotBlank()) {
             put("attachmentPath", attachmentPath)
             put("attachmentName", attachmentName)
             put("attachmentMimeType", attachmentMimeType)

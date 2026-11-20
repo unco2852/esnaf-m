@@ -46,12 +46,12 @@ fun TermsOfServiceScreen(
 ) {
     val sections = listOf(
         LegalSection(1, "Taraflar ve Amaç", "Bu kullanım koşulları, Esnafım mobil platformu ('Esnafım') ile platforma üye olan müşteri ve esnaf kullanıcılar arasındaki şartları düzenler."),
-        LegalSection(2, "Hizmetin Kapsamı", "Esnafım; mahalle esnaflarının ürün ve hizmetlerini sergilemelerine, müşterilerin randevu alıp sipariş oluşturmalarına olanak sağlayan aracı bir rehber platformdur."),
+        LegalSection(2, "Hizmetin Kapsamı", "Bu eğitim sürümü işletme, ürün ve hizmet listeleri; müşteri sipariş/randevu talepleri; mesajlaşma ve Çırak üzerinden işletme bulma akışlarını gösteren bir prototiptir."),
         LegalSection(3, "Üyelik ve Hesap Güvenliği", "Kullanıcılar verdikleri bilgilerin doğruluğundan ve hesap şifrelerinin güvenliğinden sorumludur."),
         LegalSection(4, "Müşteri Yükümlülükleri", "Müşteriler, oluşturdukları randevulara ve sipariş taleplerine dürüstlük kuralları çerçevesinde uymayı kabul eder."),
         LegalSection(5, "Esnaf Yükümlülükleri", "Esnaflar, sergiledikleri ürün ve hizmetlerin fiyat ve açıklama bilgilerinin doğru olduğunu kabul eder."),
-        LegalSection(6, "Hizmetin Kesintisizliği ve Sorumluluk Sınırı", "Esnafım, teknik altyapı güncellemeleri veya kesintiler sebebiyle oluşabilecek aksaklıklardan sorumlu tutulamaz."),
-        LegalSection(7, "Sözleşme Değişiklikleri ve Yürürlük", "Esnafım kullanım koşullarını güncelleme hakkını saklı tutar. Güncel koşullar uygulama üzerinden yayınlandığı tarihte yürürlüğe girer.")
+        LegalSection(6, "Prototip Sınırı", "Uygulamadaki akışlar eğitim ve deneme amacı taşır; gerçek bir ticari hizmet olarak değerlendirilmemelidir."),
+        LegalSection(7, "Güncelleme Tarihi", "Bu prototip kullanım koşulları 20 Kasım 2026 tarihinde güncellenmiştir.")
     )
 
     Scaffold(
@@ -88,7 +88,7 @@ fun TermsOfServiceScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Description, contentDescription = null, tint = Turquoise)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Kullanım Koşulları Yürürlük Tarihi: 01.01.2026", fontWeight = FontWeight.Bold, color = DarkInk)
+                            Text("Prototip koşulları · 20.11.2026", fontWeight = FontWeight.Bold, color = DarkInk)
                         }
                     }
                 }

@@ -64,9 +64,10 @@ import coil.compose.AsyncImage
 import com.example.esnafm.data.model.ItemModel
 import com.example.esnafm.data.model.ServiceModel
 import com.example.esnafm.data.model.UserProfile
+import com.example.esnafm.data.repository.AuthRepository
+import com.example.esnafm.data.repository.ItemRepository
+import com.example.esnafm.data.repository.ServiceRepository
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.tasks.await
 
 /**
  * Esnaf Detay Ekranı
@@ -87,6 +88,9 @@ fun MerchantDetailScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     var isChatOpen by remember { mutableStateOf(false) }
+    val authRepository = remember { AuthRepository() }
+    val itemRepository = remember { ItemRepository() }
+    val serviceRepository = remember { ServiceRepository() }
 
     LaunchedEffect(merchantId) {
         if (merchantId.isBlank()) {
@@ -98,33 +102,15 @@ fun MerchantDetailScreen(
         try {
             isLoading = true
             errorMessage = null
-            val db = FirebaseFirestore.getInstance()
-
-            // 1. Esnaf Profilini Çek
-            val userDoc = db.collection("users").document(merchantId).get().await()
-            if (userDoc.exists() && userDoc.data != null) {
-                merchantProfile = UserProfile.fromMap(userDoc.data!!)
-            } else {
-                errorMessage = "Esnaf profili bulunamadı."
-            }
-
-            // 2. Esnafın Aktif Ürünlerini Çek
-            val itemsSnapshot = db.collection("items")
-                .whereEqualTo("merchantId", merchantId)
-                .get()
-                .await()
-            products = itemsSnapshot.documents.mapNotNull { doc ->
-                doc.data?.let { data -> ItemModel.fromMap(doc.id, data) }
-            }.filter { it.isActive }
-
-            // 3. Esnafın Aktif Hizmetlerini Çek
-            val servicesSnapshot = db.collection("services")
-                .whereEqualTo("merchantId", merchantId)
-                .get()
-                .await()
-            services = servicesSnapshot.documents.mapNotNull { doc ->
-                doc.data?.let { data -> ServiceModel.fromMap(doc.id, data) }
-            }.filter { it.isActive }
+            authRepository.getPublicMerchantProfile(merchantId)
+                .onSuccess { merchantProfile = it }
+                .onFailure { errorMessage = "Esnaf profili bulunamadı." }
+            itemRepository.getMerchantItems(merchantId)
+                .onSuccess { products = it.filter { product -> product.isActive } }
+                .onFailure { errorMessage = "Esnaf ürünleri yüklenemedi." }
+            serviceRepository.getMerchantServices(merchantId)
+                .onSuccess { services = it.filter { service -> service.isActive } }
+                .onFailure { errorMessage = "Esnaf hizmetleri yüklenemedi." }
 
             isLoading = false
         } catch (e: Exception) {

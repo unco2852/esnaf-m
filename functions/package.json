@@ -2,6 +2,9 @@
   "name": "esnafm-firebase-functions",
   "private": true,
   "main": "index.js",
+  "scripts": {
+    "migrate:public-merchants": "node scripts/migrate-public-merchants.js"
+  },
   "engines": {
     "node": "20"
   },

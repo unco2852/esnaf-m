@@ -11,8 +11,6 @@ enum class UserRole {
 
     companion object {
         fun fromRoleString(roleStr: String?, isMerchantByFields: Boolean = false): UserRole {
-            android.util.Log.d("EsnafmAuthDebug", "UserRole.fromRoleString - raw roleStr: '$roleStr', isMerchantByFields: $isMerchantByFields")
-            
             // Eğer işletme detayları mevcutsa bu hesap kesinlikle Esnaf hesabıdır
             if (isMerchantByFields) {
                 return MERCHANT
@@ -72,7 +70,8 @@ data class UserProfile(
     val workingHours: String = "09:00 - 18:00",
     val businessLogoUrl: String = "",
     val businessLatitude: Double? = null,
-    val businessLongitude: Double? = null
+    val businessLongitude: Double? = null,
+    val isBusinessOpen: Boolean = true
 ) {
     fun toMap(): Map<String, Any?> {
         return mapOf(
@@ -104,9 +103,28 @@ data class UserProfile(
             "workingHours" to workingHours,
             "businessLogoUrl" to businessLogoUrl,
             "businessLatitude" to businessLatitude,
-            "businessLongitude" to businessLongitude
+            "businessLongitude" to businessLongitude,
+            "isBusinessOpen" to isBusinessOpen
         )
     }
+
+    /** Deliberately limited public listing; never includes personal contact or account fields. */
+    fun toPublicMerchantMap(): Map<String, Any?> = mapOf(
+        "uid" to uid,
+        "role" to UserRole.MERCHANT.name,
+        "businessName" to businessName.ifBlank { name },
+        "category" to category,
+        "businessDescription" to businessDescription,
+        "businessPhone" to businessPhone,
+        "businessAddress" to businessAddress.ifBlank { address },
+        "workingHours" to workingHours,
+        "businessLogoUrl" to businessLogoUrl,
+        "businessLatitude" to businessLatitude,
+        "businessLongitude" to businessLongitude,
+        "city" to city,
+        "district" to district,
+        "isOpen" to isBusinessOpen
+    )
 
     companion object {
         fun fromMap(map: Map<String, Any?>): UserProfile {
@@ -148,7 +166,24 @@ data class UserProfile(
                 workingHours = map["workingHours"] as? String ?: "09:00 - 18:00",
                 businessLogoUrl = map["businessLogoUrl"] as? String ?: "",
                 businessLatitude = (map["businessLatitude"] as? Number)?.toDouble(),
-                businessLongitude = (map["businessLongitude"] as? Number)?.toDouble()
+                businessLongitude = (map["businessLongitude"] as? Number)?.toDouble(),
+                isBusinessOpen = map["isBusinessOpen"] as? Boolean
+                    ?: map["isOpen"] as? Boolean
+                    ?: true
+            )
+        }
+
+        fun fromPublicMerchantMap(map: Map<String, Any?>): UserProfile {
+            val businessAddress = map["businessAddress"] as? String ?: ""
+            val businessPhone = map["businessPhone"] as? String ?: ""
+            return fromMap(
+                map + mapOf(
+                    "role" to UserRole.MERCHANT.name,
+                    // Detail screens use these shared display properties. Both values
+                    // come from the explicitly public business listing, not /users.
+                    "address" to businessAddress,
+                    "phone" to businessPhone
+                )
             )
         }
     }

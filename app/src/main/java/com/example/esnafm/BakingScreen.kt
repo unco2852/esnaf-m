@@ -24,7 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -59,7 +59,7 @@ val imageDescriptions = arrayOf(
 fun BakingScreen(
     bakingViewModel: BakingViewModel = viewModel()
 ) {
-    val uiState by bakingViewModel.uiState.collectAsState()
+    val uiState by bakingViewModel.uiState.collectAsStateWithLifecycle()
 
     BakingScreen(
         uiState = uiState,

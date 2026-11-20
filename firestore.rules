@@ -4,27 +4,104 @@ service cloud.firestore {
 
     // Kullanıcılar Koleksiyonu Kuralları
     match /users/{userId} {
-      // Kullanıcılar kendi özel profillerini, giriş yapmış diğer hesaplar
-      // ise yalnızca esnaf profillerini okuyabilir. Böylece mesajdaki UID
-      // müşteri profiline erişim sağlamaz.
-      allow read: if request.auth != null
-                  && (request.auth.uid == userId || resource.data.role == 'MERCHANT');
+      // This document is private: only its owner can read personal data.
+      allow read: if request.auth != null && request.auth.uid == userId;
 
-      // Yeni kullanıcı kaydı açılışta kendi UID'si ile oluşturulabilir
-      allow create: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null
+                    && request.auth.uid == userId
+                    && request.resource.data.uid == userId
+                    && request.resource.data.role in ['CUSTOMER', 'MERCHANT'];
 
-      // Kullanıcı kendi profilini güncelleyebilir, fakat 'role' alanını değiştiremez!
       allow update: if request.auth != null && request.auth.uid == userId
+                    && request.resource.data.uid == userId
                     && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
                         || resource.data.role == request.resource.data.role);
 
-      // Hesap silme
       allow delete: if request.auth != null && request.auth.uid == userId;
 
       // Adresler Alt Koleksiyonu
       match /addresses/{addressId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+
+      match /favorites/{merchantId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow create: if request.auth != null
+                      && request.auth.uid == userId
+                      && request.resource.data.merchantId == merchantId
+                      && request.resource.data.keys().hasOnly(['merchantId', 'createdAt']);
+        allow delete: if request.auth != null && request.auth.uid == userId;
+        allow update: if false;
+      }
+
+      match /notification_tokens/{tokenId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow create, update: if request.auth != null
+                              && request.auth.uid == userId
+                              && tokenId.matches('^[0-9a-f]{64}$')
+                              && request.resource.data.token is string
+                              && request.resource.data.token.size() <= 4096
+                              && request.resource.data.platform == 'android'
+                              && request.resource.data.updatedAt is int
+                              && request.resource.data.keys().hasOnly(['token', 'platform', 'updatedAt']);
+        allow delete: if request.auth != null && request.auth.uid == userId;
+      }
+
+      match /settings/{settingId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow create, update: if request.auth != null
+                              && request.auth.uid == userId
+                              && settingId == 'notifications'
+                              && request.resource.data.keys().hasOnly([
+                                'allNotifications', 'appointments', 'orders', 'messages', 'campaigns'
+                              ])
+                              && request.resource.data.allNotifications is bool
+                              && request.resource.data.appointments is bool
+                              && request.resource.data.orders is bool
+                              && request.resource.data.messages is bool
+                              && request.resource.data.campaigns is bool;
+        allow delete: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // Public business listing. Personal account fields remain in /users/{uid}.
+    match /public_merchants/{merchantId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.auth.uid == merchantId
+                    && getAfter(/databases/$(database)/documents/users/$(merchantId)).data.role == 'MERCHANT'
+                    && request.resource.data.uid == merchantId
+                    && request.resource.data.role == 'MERCHANT'
+                    && request.resource.data.keys().hasOnly([
+                      'uid', 'role', 'businessName', 'category', 'businessDescription',
+                      'businessPhone', 'businessAddress', 'workingHours', 'businessLogoUrl',
+                      'businessLatitude', 'businessLongitude', 'city', 'district', 'isOpen'
+                    ])
+                    && request.resource.data.businessName is string
+                    && request.resource.data.businessName.size() > 0
+                    && request.resource.data.category is string
+                    && request.resource.data.businessPhone is string
+                    && request.resource.data.businessAddress is string
+                    && request.resource.data.isOpen is bool;
+      allow update: if request.auth != null
+                    && request.auth.uid == merchantId
+                    && resource.data.uid == merchantId
+                    && request.resource.data.uid == merchantId
+                    && resource.data.role == 'MERCHANT'
+                    && request.resource.data.role == 'MERCHANT'
+                    && get(/databases/$(database)/documents/users/$(merchantId)).data.role == 'MERCHANT'
+                    && request.resource.data.keys().hasOnly([
+                      'uid', 'role', 'businessName', 'category', 'businessDescription',
+                      'businessPhone', 'businessAddress', 'workingHours', 'businessLogoUrl',
+                      'businessLatitude', 'businessLongitude', 'city', 'district', 'isOpen'
+                    ])
+                    && request.resource.data.businessName is string
+                    && request.resource.data.businessName.size() > 0
+                    && request.resource.data.category is string
+                    && request.resource.data.businessPhone is string
+                    && request.resource.data.businessAddress is string
+                    && request.resource.data.isOpen is bool;
+      allow delete: if request.auth != null && request.auth.uid == merchantId;
     }
 
     // Ürünler Koleksiyonu
@@ -178,7 +255,7 @@ service cloud.firestore {
                       'price', 'depositAmount', 'depositPaidAt', 'date', 'time', 'note', 'status', 'createdAt', 'recipientName',
                       'customerPhone', 'serviceLocation', 'serviceAddress', 'depositPaymentStatus',
                       'depositRefundAt', 'balancePaymentStatus', 'balancePaymentRequestedAt', 'balancePaidAt',
-                      'cancelledAt', 'cancellationReason'
+                      'cancelledAt', 'cancellationReason', 'slotDateKey', 'slotTimeKey'
                     ])
                     && request.resource.data.customerId == request.auth.uid
                     && request.resource.data.status == 'pending'
@@ -198,6 +275,15 @@ service cloud.firestore {
                         || (request.resource.data.serviceAddress is string
                             && request.resource.data.serviceAddress.size() > 0))
                     && request.resource.data.serviceId is string
+                    && request.resource.data.slotDateKey is string
+                    && request.resource.data.slotDateKey.matches('^[0-9]{8}$')
+                    && request.resource.data.slotTimeKey is string
+                    && request.resource.data.slotTimeKey.matches('^[0-9]{4}$')
+                    && getAfter(/databases/$(database)/documents/appointment_slots/$(request.resource.data.merchantId)/days/$(request.resource.data.slotDateKey)/times/$(request.resource.data.slotTimeKey)).data.appointmentId == appointmentId
+                    && getAfter(/databases/$(database)/documents/appointment_slots/$(request.resource.data.merchantId)/days/$(request.resource.data.slotDateKey)/times/$(request.resource.data.slotTimeKey)).data.customerId == request.auth.uid
+                    && getAfter(/databases/$(database)/documents/appointment_slots/$(request.resource.data.merchantId)/days/$(request.resource.data.slotDateKey)/times/$(request.resource.data.slotTimeKey)).data.serviceId == request.resource.data.serviceId
+                    && getAfter(/databases/$(database)/documents/appointment_slots/$(request.resource.data.merchantId)/days/$(request.resource.data.slotDateKey)/times/$(request.resource.data.slotTimeKey)).data.date == request.resource.data.date
+                    && getAfter(/databases/$(database)/documents/appointment_slots/$(request.resource.data.merchantId)/days/$(request.resource.data.slotDateKey)/times/$(request.resource.data.slotTimeKey)).data.time == request.resource.data.time
                     && request.resource.data.depositAmount is number
                     && request.resource.data.depositAmount >= 0
                     && request.resource.data.depositAmount <= request.resource.data.price * 0.5
@@ -212,6 +298,9 @@ service cloud.firestore {
                     && get(/databases/$(database)/documents/users/$(request.resource.data.merchantId)).data.role == 'MERCHANT';
 
       allow update: if request.auth != null
+                    && (!('slotDateKey' in resource.data)
+                        || !(request.resource.data.status in ['cancelled', 'rejected', 'completed'])
+                        || !existsAfter(/databases/$(database)/documents/appointment_slots/$(resource.data.merchantId)/days/$(resource.data.slotDateKey)/times/$(resource.data.slotTimeKey)))
                     && ((request.auth.uid == resource.data.customerId
                          && resource.data.status == 'approved'
                          && resource.data.depositPaymentStatus == 'unpaid'
@@ -258,12 +347,57 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // A deterministic slot document prevents two requests reserving the same merchant time.
+    match /appointment_slots/{merchantId}/days/{dateKey}/times/{timeKey} {
+      allow read: if request.auth != null
+                  && (request.auth.uid == merchantId
+                      || !exists(/databases/$(database)/documents/appointment_slots/$(merchantId)/days/$(dateKey)/times/$(timeKey))
+                      || request.auth.uid == resource.data.customerId);
+      allow create: if request.auth != null
+                    && request.auth.uid == request.resource.data.customerId
+                    && request.resource.data.merchantId == merchantId
+                    && request.resource.data.slotDateKey == dateKey
+                    && request.resource.data.slotTimeKey == timeKey
+                    && request.resource.data.keys().hasOnly([
+                      'appointmentId', 'customerId', 'merchantId', 'serviceId',
+                      'date', 'time', 'slotDateKey', 'slotTimeKey'
+                    ])
+                    && getAfter(/databases/$(database)/documents/appointments/$(request.resource.data.appointmentId)).data.customerId == request.auth.uid
+                    && getAfter(/databases/$(database)/documents/appointments/$(request.resource.data.appointmentId)).data.merchantId == merchantId
+                    && getAfter(/databases/$(database)/documents/appointments/$(request.resource.data.appointmentId)).data.slotDateKey == dateKey
+                    && getAfter(/databases/$(database)/documents/appointments/$(request.resource.data.appointmentId)).data.slotTimeKey == timeKey
+                    && getAfter(/databases/$(database)/documents/appointments/$(request.resource.data.appointmentId)).data.serviceId == request.resource.data.serviceId
+                    && getAfter(/databases/$(database)/documents/appointments/$(request.resource.data.appointmentId)).data.date == request.resource.data.date
+                    && getAfter(/databases/$(database)/documents/appointments/$(request.resource.data.appointmentId)).data.time == request.resource.data.time;
+      allow delete: if request.auth != null
+                    && (request.auth.uid == resource.data.customerId || request.auth.uid == merchantId)
+                    && getAfter(/databases/$(database)/documents/appointments/$(resource.data.appointmentId)).data.status in ['cancelled', 'rejected', 'completed'];
+      allow update: if false;
+    }
+
+    match /merchant_conversations/{conversationId} {
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasOnly(['customerId', 'merchantId', 'createdAt'])
+                    && request.resource.data.customerId == request.auth.uid
+                    && request.resource.data.merchantId is string
+                    && request.resource.data.merchantId != request.auth.uid
+                    && conversationId == request.resource.data.merchantId + '--' + request.resource.data.customerId
+                    && get(/databases/$(database)/documents/users/$(request.resource.data.merchantId)).data.role == 'MERCHANT';
+      allow get: if request.auth != null
+                 && (request.auth.uid == resource.data.customerId
+                     || request.auth.uid == resource.data.merchantId
+                     || conversationId.matches('.*--' + request.auth.uid + '$'));
+      allow list: if request.auth != null
+                  && (request.auth.uid == resource.data.customerId || request.auth.uid == resource.data.merchantId);
+      allow update, delete: if false;
+    }
+
     // Esnafa ulaş sohbeti: mesajlarda kullanıcı profili yerine yalnızca taraf UID'leri bulunur.
     match /merchant_messages/{messageId} {
       allow create: if request.auth != null
                     && request.resource.data.keys().hasOnly([
                       'senderId', 'customerId', 'merchantId', 'message', 'createdAt',
-                      'attachmentUrl', 'attachmentPath', 'attachmentName',
+                      'attachmentPath', 'attachmentName',
                       'attachmentMimeType', 'attachmentType', 'attachmentSizeBytes'
                     ])
                     && request.resource.data.keys().hasAll([
@@ -277,15 +411,17 @@ service cloud.firestore {
                     && request.resource.data.message is string
                     && request.resource.data.message.size() <= 2000
                     && (request.resource.data.message.size() > 0
-                        || request.resource.data.attachmentUrl is string
-                        && request.resource.data.attachmentUrl.size() > 0)
+                        || ('attachmentPath' in request.resource.data
+                            && request.resource.data.attachmentPath is string
+                            && request.resource.data.attachmentPath.size() > 0))
                     && ((request.auth.uid == request.resource.data.customerId
                          && get(/databases/$(database)/documents/users/$(request.resource.data.merchantId)).data.role == 'MERCHANT')
                         || request.auth.uid == request.resource.data.merchantId)
-                    && (!('attachmentUrl' in request.resource.data)
-                        || (request.resource.data.attachmentUrl is string
-                            && request.resource.data.attachmentUrl.size() <= 2000
-                            && request.resource.data.attachmentPath is string
+                    && existsAfter(/databases/$(database)/documents/merchant_conversations/$(request.resource.data.merchantId + '--' + request.resource.data.customerId))
+                    && getAfter(/databases/$(database)/documents/merchant_conversations/$(request.resource.data.merchantId + '--' + request.resource.data.customerId)).data.customerId == request.resource.data.customerId
+                    && getAfter(/databases/$(database)/documents/merchant_conversations/$(request.resource.data.merchantId + '--' + request.resource.data.customerId)).data.merchantId == request.resource.data.merchantId
+                    && (!('attachmentPath' in request.resource.data)
+                        || (request.resource.data.attachmentPath is string
                             && request.resource.data.attachmentPath.size() <= 300
                             && request.resource.data.attachmentName is string
                             && request.resource.data.attachmentName.size() <= 120
@@ -295,7 +431,7 @@ service cloud.firestore {
                             && request.resource.data.attachmentSizeBytes is int
                             && request.resource.data.attachmentSizeBytes <= 104857600
                             && (request.resource.data.attachmentType == 'video'
-                                || request.resource.data.attachmentSizeBytes <= 26214400)))
+                                || request.resource.data.attachmentSizeBytes <= 26214400)));
 
       allow read: if request.auth != null
                   && (request.auth.uid == resource.data.merchantId
@@ -306,8 +442,19 @@ service cloud.firestore {
 
     // Destek Talepleri
     match /support_tickets/{ticketId} {
-      allow create: if request.auth != null;
-      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.uid;
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasOnly(['uid', 'userEmail', 'subject', 'message', 'createdAt'])
+                    && request.resource.data.keys().hasAll(['uid', 'subject', 'message', 'createdAt'])
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.subject is string
+                    && request.resource.data.subject.size() > 0
+                    && request.resource.data.subject.size() <= 100
+                    && request.resource.data.message is string
+                    && request.resource.data.message.size() >= 10
+                    && request.resource.data.message.size() <= 4000
+                    && request.resource.data.createdAt is int;
+      allow read: if request.auth != null && request.auth.uid == resource.data.uid;
+      allow update, delete: if false;
     }
   }
 }

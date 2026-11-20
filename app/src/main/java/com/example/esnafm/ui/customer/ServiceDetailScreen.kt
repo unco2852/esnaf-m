@@ -67,10 +67,10 @@ import com.example.esnafm.data.model.AppointmentModel
 import com.example.esnafm.data.model.ServiceModel
 import com.example.esnafm.data.model.UserProfile
 import com.example.esnafm.data.repository.AppointmentRepository
+import com.example.esnafm.data.repository.AuthRepository
+import com.example.esnafm.data.repository.ServiceRepository
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -96,6 +96,8 @@ fun ServiceDetailScreen(
     var bookingSuccessMessage by remember { mutableStateOf<String?>(null) }
 
     val appointmentRepository = remember { AppointmentRepository() }
+    val authRepository = remember { AuthRepository() }
+    val serviceRepository = remember { ServiceRepository() }
 
     LaunchedEffect(serviceId) {
         if (serviceId.isBlank()) {
@@ -107,23 +109,17 @@ fun ServiceDetailScreen(
         try {
             isLoading = true
             errorMessage = null
-            val db = FirebaseFirestore.getInstance()
-
-            // 1. Hizmet Belgesini Çek
-            val docSnapshot = db.collection("services").document(serviceId).get().await()
-            if (docSnapshot.exists() && docSnapshot.data != null) {
-                val service = ServiceModel.fromMap(docSnapshot.id, docSnapshot.data!!)
+            val serviceResult = serviceRepository.getServiceById(serviceId)
+            if (serviceResult.isSuccess) {
+                val service = serviceResult.getOrThrow()
                 serviceModel = service
 
                 // 2. İlgili Esnaf Profilini Çek
                 if (service.merchantId.isNotBlank()) {
-                    val userDoc = db.collection("users").document(service.merchantId).get().await()
-                    if (userDoc.exists() && userDoc.data != null) {
-                        merchantProfile = UserProfile.fromMap(userDoc.data!!)
-                    }
+                    merchantProfile = authRepository.getPublicMerchantProfile(service.merchantId).getOrNull()
                 }
             } else {
-                errorMessage = "Hizmet veritabanında bulunamadı."
+                errorMessage = serviceResult.exceptionOrNull()?.localizedMessage ?: "Hizmet bulunamadı."
             }
 
             isLoading = false

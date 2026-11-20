@@ -32,6 +32,7 @@ class OrderRepository(
 
         val listenerRegistration = ordersCollection
             .whereEqualTo("customerId", customerId)
+            .limit(200)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     close(error)
@@ -60,6 +61,7 @@ class OrderRepository(
 
         val listenerRegistration = ordersCollection
             .whereEqualTo("merchantId", merchantId)
+            .limit(200)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     close(error)

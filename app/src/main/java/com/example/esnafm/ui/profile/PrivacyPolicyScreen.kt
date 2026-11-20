@@ -52,23 +52,23 @@ fun PrivacyPolicyScreen(
     onNavigateBack: () -> Unit
 ) {
     val sections = listOf(
-        LegalSection(1, "Veri Sorumlusunun Kimliği ve İletişim Bilgileri", "Esnafım Platformu ('Esnafım'), 6698 sayılı Kişisel Verilerin Korunması Kanunu ('KVKK') uyarınca veri sorumlusu sıfatıyla hareket etmektedir. İletişim: destek@esnafm.com"),
-        LegalSection(2, "Aydınlatma Metninin Amacı ve Kapsamı", "Bu metin, platformumuzu kullanan müşteri ve esnafların kişisel verilerinin hangi amaçlarla işlendiğini ve haklarını açıklamak amacıyla hazırlanmıştır."),
-        LegalSection(3, "İşlenen Kişisel Veri Kategorileri", "İşlenen veriler: Kimlik Bilgileri (Ad, Soyad), İletişim Bilgileri (E-posta, Telefon, Adres), İşlem Bilgileri (Randevular, Siparişler) ve Kullanım Bilgileridir."),
-        LegalSection(4, "Kişisel Verilerin İşlenme Amaçları", "Verileriniz; üyelik süreçlerinin yürütülmesi, müşteri-esnaf iletişiminin sağlanması, randevu ve sipariş taleplerinin iletilmesi ve platform güvenliğinin sağlanması amaçlarıyla işlenir."),
-        LegalSection(5, "Kişisel Verilerin İşlenmesinin Hukuki Sebepleri", "KVKK Madde 5 uyarınca; sözleşmenin kurulması ve ifası, hukuki yükümlülüklerin yerine getirilmesi ve meşru menfaatlerimiz hukuki sebeplerine dayanılmaktadır."),
-        LegalSection(6, "Kişisel Verilerin Toplanma Yöntemleri", "Kişisel verileriniz, mobil uygulama üzerinden doldurduğunuz kayıt, profil, randevu ve sipariş formları aracılığıyla elektronik ortamda toplanmaktadır."),
-        LegalSection(7, "Veri Alıcıları ve Aktarım Kategorileri", "Verileriniz yalnızca hizmetin ifası için gerekli olan ilgili mahalle esnafı veya müşterisi ile ve yasal zorunluluk halinde yetkili kamu kurumlarıyla paylaşılır."),
-        LegalSection(8, "Firebase ve Bulut Hizmet Sağlayıcıları", "Esnafım, veri depolama ve kimlik doğrulama altyapısı olarak Google Firebase servislerini (Firebase Auth ve Cloud Firestore) kullanmaktadır."),
-        LegalSection(9, "Yurt Dışına Veri Aktarımı", "Firebase bulut sunucularının yurt dışında bulunması sebebiyle verileriniz güvenli sunucu standartlarında muhafaza edilmektedir."),
-        LegalSection(10, "Saklama Süreleri ve Veri Silme Politikası", "Kişisel verileriniz üyeliğiniz devam ettiği sürece saklanır. Hesabınızı sildiğinizde verileriniz mevzuattaki yasal süreler sonunda kalıcı olarak silinir."),
-        LegalSection(11, "Veri Güvenliği ve Teknik Tedbirler", "Verilerinizin yetkisiz erişimlere karşı korunması amacıyla e-posta doğrulaması, şifreli veritabanı iletişimi ve yetkilendirme kuralları uygulanmaktadır."),
-        LegalSection(12, "6698 Sayılı KVKK Kapsamındaki Haklarınız", "KVKK Madde 11 uyarınca; verilerinizin işlenip işlenmediğini öğrenme, düzeltilmesini veya silinmesini talep etme haklarına sahipsiniz."),
-        LegalSection(13, "Veri Sorumlusuna Başvuru Yöntemleri", "Haklarınıza ilişkin taleplerinizi destek@esnafm.com e-posta adresine iletebilirsiniz."),
-        LegalSection(14, "İlgili Kişi Başvurularının Değerlendirilmesi", "Başvurularınız en geç 30 gün içerisinde ücretsiz olarak değerlendirilip tarafınıza yazılı veya elektronik ortamda yanıt verilecektir."),
-        LegalSection(15, "Çocuklara Ait Kişisel Veriler", "Esnafım platformu 18 yaşın altındaki bireylere yönelik değildir ve çocuklara ait verileri kasten işlemez."),
-        LegalSection(16, "Çerezler ve İzleme Teknolojileri", "Mobil uygulamamızda oturum güvenliği için yalnızca teknik çerezler kullanılmaktadır."),
-        LegalSection(17, "Politika Değişiklikleri ve Yürürlük Tarihi", "Bu politika 1 Ocak 2026 tarihinde yürürlüğe girmiştir. Güncellemeler uygulama üzerinden yayınlanır.")
+        LegalSection(1, "Proje Sürümü Hakkında", "Esnafım bu sürümde bir eğitim/prototip uygulamasıdır. Gerçek bir veri sorumlusu, destek adresi ve yayıma hazır hukuki aydınlatma metni tanımlanmamıştır."),
+        LegalSection(2, "Uygulamanın Kapsamı", "Uygulama; müşteri ve işletme hesapları, işletme listeleri, ürün ve hizmet ilanları, sipariş/randevu talepleri, uygulama içi mesajlar ve Çırak asistanı özelliklerini içerir."),
+        LegalSection(3, "İşlenebilecek Veri Türleri", "Kayıt ve profil bilgileri (ad, e-posta, telefon ve adres), işletme bilgileri, sipariş/randevu ayrıntıları, mesaj metinleri ve ekleri, destek talepleri ve izin verilirse yaklaşık cihaz konumu işlenebilir."),
+        LegalSection(4, "Kullanım Amaçları", "Bilgiler hesap oturumunu yönetmek, işletme ve ilanları göstermek, sipariş/randevu taleplerini ilgili taraflara iletmek, sohbeti ve destek akışını sağlamak ve kullanıcının isteğiyle yakın işletmeleri bulmak için kullanılır."),
+        LegalSection(5, "Çırak Asistanı", "Çırak'a yazılan ihtiyaç metni, uygun işletme kategorisini belirlemek ve işletme araması yapmak amacıyla Firebase AI Logic üzerinden işlenebilir. Konum izni ayrıca istenir; izin verilmezse konum olmadan arama yapılır."),
+        LegalSection(6, "Verilerin Toplanması", "Veriler uygulamadaki kayıt, profil, adres, mesaj, sipariş ve randevu alanları ile kullanıcı izin verirse cihaz konum servisi üzerinden alınır."),
+        LegalSection(7, "İşletmelerle Paylaşım", "Bir sipariş veya randevu talebi gönderildiğinde, talebi karşılayacak işletmeye işlem için gereken bilgiler iletilir. 'Esnafa ulaş' sohbetinde kullanıcı hesabı yerine UID gösterilir; mesaj ve ekler yalnızca konuşmanın taraflarına açılır."),
+        LegalSection(8, "Kullanılan Bulut Servisleri", "Proje kodu Firebase Authentication, Cloud Firestore ve Cloud Storage kullanır. Çırak için Firebase AI Logic entegrasyonu bulunur. Gerçek projedeki bölge, saklama ayarı ve erişim yapılandırması Firebase Console'dan ayrıca doğrulanmalıdır."),
+        LegalSection(9, "Bulut İşleme", "Firebase servisleri verileri proje yapılandırmasına göre bulut altyapısında işleyebilir. Bu eğitim sürümü, gerçek proje bölgesini veya yurt dışı aktarım koşullarını doğrulayan bir beyan değildir."),
+        LegalSection(10, "Saklama ve Hesap Silme", "Hesap silme akışı Auth hesabını siler; ilişkili verilerin temizlenmesi Cloud Function dağıtımına bağlıdır. Bu işlev canlı projeye dağıtılmadan silmenin tüm verileri temizlediği varsayılmamalıdır."),
+        LegalSection(11, "Erişim Kontrolleri", "Kaynakta kullanıcı profilleri ve sohbet verileri için Firebase Security Rules bulunur. Kuralların Firebase Console'a dağıtılmış sürümü yerel dosyalarla aynı olmalıdır; App Check ve gerçek proje ayarları ayrıca kontrol edilmelidir."),
+        LegalSection(12, "Konum İzni", "Yakın işletme araması için konum izni isteğe bağlıdır. İzin verilmezse uygulamanın konumsuz kullanım akışları devam eder."),
+        LegalSection(13, "Kullanıcı Kontrolü", "Kullanıcı profil ve adres bilgilerini uygulamada güncelleyebilir, mesaj gönderebilir veya silebilir ve hesabını silme akışını başlatabilir. Bulut tarafındaki işlemlerin tamamlanması backend dağıtımına bağlı olabilir."),
+        LegalSection(14, "Destek İletişimi", "Bu ödev sürümünde gerçek destek e-posta adresi tanımlı değildir. Uygulamadaki destek formu, oturum açmış kullanıcının talebini Firebase'e kaydeder."),
+        LegalSection(15, "Çocuklara Ait Veriler", "Bu prototip çocuklara yönelik tasarlanmamıştır. Gerçek yayından önce yaş sınırı ve çocuk verilerine ilişkin süreçler belirlenmelidir."),
+        LegalSection(16, "Çerezler ve İzleme", "Android uygulaması web çerezi kullanmaz. Konum servisi yalnızca ilgili izin verildiğinde çağrılır."),
+        LegalSection(17, "Güncelleme Tarihi", "Bu prototip bilgilendirmesi 20 Kasım 2026 tarihinde güncellenmiştir. Gerçek kullanım öncesinde veri sorumlusu bilgileri ve hukuki metin uygulamanın gerçek çalışma biçimine göre hazırlanmalıdır.")
     )
 
     Scaffold(
@@ -105,7 +105,7 @@ fun PrivacyPolicyScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Description, contentDescription = null, tint = Turquoise)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Aydınlatma Metni Son Güncelleme: 01.01.2026", fontWeight = FontWeight.Bold, color = DarkInk)
+                            Text("Prototip bilgilendirmesi · 20.11.2026", fontWeight = FontWeight.Bold, color = DarkInk)
                         }
                     }
                 }

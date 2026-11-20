@@ -16,18 +16,29 @@ service firebase.storage {
     }
 
     match /merchant_chats/{merchantId}/{customerId}/{messageId} {
+      function hasConversation() {
+        let conversationPath = /databases/(default)/documents/merchant_conversations/$(merchantId + '--' + customerId);
+        return firestore.exists(conversationPath)
+               && firestore.get(conversationPath).data.merchantId == merchantId
+               && firestore.get(conversationPath).data.customerId == customerId;
+      }
+
       allow read: if request.auth != null
-                  && (request.auth.uid == merchantId || request.auth.uid == customerId);
+                  && (request.auth.uid == merchantId || request.auth.uid == customerId)
+                  && hasConversation();
 
       allow create: if request.auth != null
                     && (request.auth.uid == merchantId || request.auth.uid == customerId)
+                    && hasConversation()
                     && ((request.resource.contentType.matches('video/.*')
                          && request.resource.size <= 100 * 1024 * 1024)
                         || (!request.resource.contentType.matches('video/.*')
                             && request.resource.size <= 25 * 1024 * 1024))
                     && request.resource.contentType != null;
 
-      allow update, delete: if false;
+      allow delete: if request.auth != null
+                    && (request.auth.uid == merchantId || request.auth.uid == customerId);
+      allow update: if false;
     }
   }
 }
