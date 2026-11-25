@@ -1,6 +1,5 @@
 package com.example.esnafm.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.darkColorScheme
@@ -91,7 +90,9 @@ fun customTextFieldColors() = OutlinedTextFieldDefaults.colors(
  */
 @Composable
 fun EsnafımTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    // Ekranların renk paleti açık tema için tasarlandı. Sistem koyu modunu
+    // otomatik uygulamak, açık zeminlerle koyu mod metin renklerini karıştırıyordu.
+    darkTheme: Boolean = false,
     dynamicColor: Boolean = false, // Mahalle esnafı renk paletini her cihazda tutarlı korumak için kapalı
     content: @Composable () -> Unit
 ) {

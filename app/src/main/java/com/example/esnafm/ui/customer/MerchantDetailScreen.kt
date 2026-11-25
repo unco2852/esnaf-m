@@ -35,10 +35,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -141,6 +141,19 @@ fun MerchantDetailScreen(
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             )
+        },
+        floatingActionButton = {
+            if (!isLoading && errorMessage == null && merchantProfile != null &&
+                FirebaseAuth.getInstance().currentUser?.uid != merchantId) {
+                ExtendedFloatingActionButton(
+                    onClick = { isChatOpen = true },
+                    modifier = Modifier.height(48.dp),
+                    icon = { Icon(Icons.Default.Email, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    text = { Text("Esnafa Ulaş") },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
         }
     ) { innerPadding ->
         Column(
@@ -234,6 +247,14 @@ fun MerchantDetailScreen(
                             }
                         }
 
+                        if (!profile?.businessDescription.isNullOrBlank()) {
+                            Text(
+                                text = profile!!.businessDescription,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+
                         if (!profile?.address.isNullOrBlank()) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
@@ -270,15 +291,6 @@ fun MerchantDetailScreen(
                     }
                 }
 
-                OutlinedButton(
-                    onClick = { isChatOpen = true },
-                    modifier = Modifier.align(Alignment.End).padding(horizontal = 16.dp)
-                ) {
-                    Icon(Icons.Default.Email, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Mesaj gönder")
-                }
-
                 // Sekme Seçici: Ürünler / Hizmetler
                 TabRow(selectedTabIndex = selectedTabIndex) {
                     Tab(
@@ -307,7 +319,7 @@ fun MerchantDetailScreen(
                         } else {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(16.dp),
+                                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 items(products) { item ->
@@ -398,7 +410,7 @@ fun MerchantDetailScreen(
                         } else {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(16.dp),
+                                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 items(services) { service ->
@@ -492,7 +504,8 @@ fun MerchantDetailScreen(
                 currentUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty(),
                 title = merchantProfile!!.businessName.ifBlank { "Esnaf" },
                 isMerchant = false,
-                onDismiss = { isChatOpen = false }
+                onDismiss = { isChatOpen = false },
+                onConversationFinished = { isChatOpen = false }
             )
         }
     }

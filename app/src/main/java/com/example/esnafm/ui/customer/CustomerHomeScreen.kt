@@ -3,13 +3,20 @@ package com.example.esnafm.ui.customer
 import android.Manifest
 import com.example.esnafm.R
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,8 +28,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -44,6 +53,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Explore
@@ -102,6 +112,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
@@ -110,6 +122,10 @@ import com.example.esnafm.data.model.ItemModel
 import com.example.esnafm.data.model.OrderModel
 import com.example.esnafm.data.model.ServiceModel
 import com.example.esnafm.data.model.UserProfile
+import com.example.esnafm.ui.components.ConfirmActionDialog
+import com.example.esnafm.ui.components.ConfirmAppExitDialog
+import com.example.esnafm.ui.components.PaymentCardFields
+import com.example.esnafm.ui.components.isPaymentCardComplete
 import com.example.esnafm.ui.theme.DarkInk
 import com.example.esnafm.ui.theme.LightBeige
 import com.example.esnafm.ui.theme.SkyBlue
@@ -148,11 +164,16 @@ fun CustomerHomeScreen(
     var appointmentToCancel by remember { mutableStateOf<AppointmentModel?>(null) }
     var orderToCancel by remember { mutableStateOf<OrderModel?>(null) }
     var pendingAssistantQuery by remember { mutableStateOf<String?>(null) }
+    var isReturnToLoginConfirmationOpen by remember { mutableStateOf(false) }
+    var isExitConfirmationOpen by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    BackHandler(enabled = previousHistoryPage != null || selectedTabIndex != 0) {
-        if (previousHistoryPage != null) previousHistoryPage = null
-        else selectedTabIndex = 0
+    BackHandler {
+        when {
+            previousHistoryPage != null -> previousHistoryPage = null
+            selectedTabIndex != 0 -> selectedTabIndex = 0
+            else -> isExitConfirmationOpen = true
+        }
     }
 
     fun submitAssistantQueryWithLocation(query: String) {
@@ -219,7 +240,7 @@ fun CustomerHomeScreen(
                 navigationIcon = {
                     IconButton(onClick = {
                         if (previousHistoryPage != null) previousHistoryPage = null
-                        else onNavigateBack()
+                        else isReturnToLoginConfirmationOpen = true
                     }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -357,46 +378,66 @@ fun CustomerHomeScreen(
                 }
 
                 // Durum / Başarı Bildirimi Mesajı
-                uiState.errorMessage?.let { error ->
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Terracotta.copy(alpha = 0.12f))
-                    ) {
-                        Text(
-                            text = error,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = DarkInk,
-                            modifier = Modifier.padding(12.dp)
-                        )
+                AnimatedContent(
+                    targetState = uiState.errorMessage,
+                    transitionSpec = {
+                        (fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+                            expandVertically(tween(260, easing = FastOutSlowInEasing))) togetherWith
+                            (fadeOut(tween(140)) + shrinkVertically(tween(200)))
+                    },
+                    label = "customer_error_banner"
+                ) { error ->
+                    if (error != null) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = Terracotta.copy(alpha = 0.12f))
+                        ) {
+                            Text(
+                                text = error,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = DarkInk,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
                     }
                 }
-                if (uiState.bookingSuccessMessage != null) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = LightBeige
-                        )
-                    ) {
-                        Text(
-                            text = uiState.bookingSuccessMessage!!,
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                            color = DarkInk,
-                            modifier = Modifier.padding(12.dp)
-                        )
+                AnimatedContent(
+                    targetState = uiState.bookingSuccessMessage,
+                    transitionSpec = {
+                        (fadeIn(tween(240, easing = FastOutSlowInEasing)) +
+                            expandVertically(tween(280, easing = FastOutSlowInEasing))) togetherWith
+                            (fadeOut(tween(140)) + shrinkVertically(tween(200)))
+                    },
+                    label = "booking_success_banner"
+                ) { successMessage ->
+                    if (successMessage != null) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = LightBeige)
+                        ) {
+                            Text(
+                                text = successMessage,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                color = DarkInk,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
                     }
                 }
 
                 AnimatedContent(
                     targetState = selectedTabIndex,
                     transitionSpec = {
-                        (fadeIn() + slideInVertically(initialOffsetY = { it / 14 })) togetherWith
-                            (fadeOut() + slideOutVertically(targetOffsetY = { -it / 18 }))
+                        (fadeIn(tween(260, easing = FastOutSlowInEasing)) +
+                            slideInVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)) { it / 18 }) togetherWith
+                            (fadeOut(tween(170, easing = FastOutSlowInEasing)) +
+                                slideOutVertically(animationSpec = tween(210, easing = FastOutSlowInEasing)) { -it / 24 })
                     },
                     label = "customer_navigation_transition"
                 ) { activeTab ->
@@ -405,7 +446,8 @@ fun CustomerHomeScreen(
                         uiState = uiState,
                         onToggleFavorite = { viewModel.toggleFavorite(it) },
                         onNavigateToMerchantDetail = onNavigateToMerchantDetail,
-                        onOpenAssistant = { viewModel.openAssistant() }
+                        onOpenAssistant = { viewModel.openAssistant() },
+                        onPayBalance = { demoPaymentRequest = it to false }
                     )
                     1 -> CategoriesSection(
                         uiState = uiState,
@@ -476,17 +518,13 @@ fun CustomerHomeScreen(
             BookAppointmentDialog(
                 service = uiState.selectedServiceForBooking!!,
                 onDismiss = { viewModel.closeBookingDialog() },
-                initialName = FirebaseAuth.getInstance().currentUser?.displayName.orEmpty(),
-                initialPhone = FirebaseAuth.getInstance().currentUser?.phoneNumber.orEmpty(),
                 errorMessage = uiState.errorMessage,
-                onConfirm = { date, time, note, name, phone, location, address ->
+                onConfirm = { date, time, note, location, address ->
                     viewModel.bookAppointment(
                         uiState.selectedServiceForBooking!!,
                         date,
                         time,
                         note,
-                        name,
-                        phone,
                         location,
                         address
                     )
@@ -510,8 +548,8 @@ fun CustomerHomeScreen(
         }
 
         demoPaymentRequest?.let { (appointment, isDeposit) ->
-            DemoPaymentConfirmationDialog(
-                title = if (isDeposit) "Depozito demo ödemesi" else "Kalan tutar demo ödemesi",
+            PaymentConfirmationDialog(
+                title = if (isDeposit) "Depozito ödemesi" else "Kalan tutar ödemesi",
                 amount = if (isDeposit) appointment.depositAmount else (appointment.price - appointment.depositAmount).coerceAtLeast(0.0),
                 onDismiss = { demoPaymentRequest = null },
                 onConfirm = {
@@ -529,7 +567,7 @@ fun CustomerHomeScreen(
                 text = {
                     Text(
                         if (appointment.depositPaymentStatus == "demo_paid") {
-                            "${appointment.serviceTitle} randevusu iptal edilecek. Demo depozito demo iadesi olarak işaretlenecek."
+                            "${appointment.serviceTitle} randevusu iptal edilecek. Ödenen depozito için iade kaydı oluşturulacak."
                         } else {
                             "${appointment.serviceTitle} randevusunu iptal etmek istiyor musunuz?"
                         }
@@ -557,7 +595,7 @@ fun CustomerHomeScreen(
                 text = {
                     Text(
                         if (order.paymentStatus == "demo_paid") {
-                            "${order.itemTitle} siparişi iptal edilecek. Demo ödeme iade edildi olarak işaretlenecek."
+                            "${order.itemTitle} siparişi iptal edilecek. Ödeme için iade kaydı oluşturulacak."
                         } else {
                             "${order.itemTitle} siparişini iptal etmek istiyor musunuz?"
                         }
@@ -577,11 +615,28 @@ fun CustomerHomeScreen(
                 }
             )
         }
+
+        if (isReturnToLoginConfirmationOpen) {
+            ConfirmActionDialog(
+                title = "Giriş ekranına dönülsün mü?",
+                message = "Ana ekrandan çıkıp giriş ekranına dönmek istediğine emin misin?",
+                confirmText = "Giriş ekranına dön",
+                onConfirm = {
+                    isReturnToLoginConfirmationOpen = false
+                    onNavigateBack()
+                },
+                onDismiss = { isReturnToLoginConfirmationOpen = false }
+            )
+        }
+        ConfirmAppExitDialog(
+            visible = isExitConfirmationOpen,
+            onDismiss = { isExitConfirmationOpen = false }
+        )
     }
 }
 
 @Composable
-private fun CustomerNavigationItem(
+private fun RowScope.CustomerNavigationItem(
     selected: Boolean,
     label: String,
     icon: ImageVector,
@@ -639,7 +694,8 @@ private fun ExploreSection(
     uiState: CustomerUiState,
     onToggleFavorite: (String) -> Unit,
     onNavigateToMerchantDetail: (String) -> Unit,
-    onOpenAssistant: () -> Unit
+    onOpenAssistant: () -> Unit,
+    onPayBalance: (AppointmentModel) -> Unit
 ) {
     val merchants = uiState.filteredMerchants
     val isSearchOrFilterActive = uiState.searchQuery.isNotBlank() || uiState.selectedCategory != "Tümü"
@@ -649,6 +705,30 @@ private fun ExploreSection(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        if (uiState.balancePaymentRequests.isNotEmpty()) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Ödeme tamamlama isteği",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = DarkInk
+                    )
+                    uiState.balancePaymentRequests.forEach { appointment ->
+                        val merchantName = uiState.realMerchants
+                            .firstOrNull { it.uid == appointment.merchantId }
+                            ?.let { it.businessName.ifBlank { it.name } }
+                            .orEmpty()
+                            .ifBlank { "İşletme" }
+                        PaymentCompletionRequestCard(
+                            appointment = appointment,
+                            merchantName = merchantName,
+                            onPay = { onPayBalance(appointment) }
+                        )
+                    }
+                }
+            }
+        }
+
         if (uiState.isLoading) {
             item {
                 Box(
@@ -699,13 +779,74 @@ private fun ExploreSection(
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
-            items(merchants) { merchant ->
-                RealMerchantCard(
-                    merchant = merchant,
-                    isFavorite = uiState.favoriteMerchantIds.contains(merchant.uid),
-                    onToggleFavorite = { onToggleFavorite(merchant.uid) },
-                    onClick = { onNavigateToMerchantDetail(merchant.uid) }
+            items(merchants, key = { it.uid }) { merchant ->
+                AnimatedVisibility(
+                    visible = true,
+                    enter = fadeIn(tween(260, easing = FastOutSlowInEasing)) +
+                        slideInVertically(animationSpec = tween(320, easing = FastOutSlowInEasing)) { it / 14 }
+                ) {
+                    RealMerchantCard(
+                        merchant = merchant,
+                        isFavorite = uiState.favoriteMerchantIds.contains(merchant.uid),
+                        onToggleFavorite = { onToggleFavorite(merchant.uid) },
+                        onClick = { onNavigateToMerchantDetail(merchant.uid) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PaymentCompletionRequestCard(
+    appointment: AppointmentModel,
+    merchantName: String,
+    onPay: () -> Unit
+) {
+    val remainingAmount = (appointment.price - appointment.depositAmount).coerceAtLeast(0.0)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFE5F3F3)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.CreditCard,
+                    contentDescription = null,
+                    tint = Turquoise,
+                    modifier = Modifier.size(22.dp)
                 )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Esnaf ödeme tamamlamanı istiyor",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = DarkInk
+                )
+            }
+            Text(
+                text = "${appointment.serviceTitle} · $merchantName",
+                style = MaterialTheme.typography.bodyMedium,
+                color = DarkInk
+            )
+            Text(
+                text = "Kalan tutar: $remainingAmount TL",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = Turquoise
+            )
+            Button(
+                onClick = onPay,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Turquoise)
+            ) {
+                Text("Ödeme isteğini görüntüle")
             }
         }
     }
@@ -767,6 +908,7 @@ private fun CirakChatDialog(
 ) {
     var inputText by remember { mutableStateOf("") }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val suggestions = listOf("Musluğum akıtıyor", "Evimi boyayacağım", "Bütçeme uygun işletme")
 
     androidx.compose.runtime.LaunchedEffect(uiState.chatMessages.size) {
         if (uiState.chatMessages.isNotEmpty()) {
@@ -774,52 +916,67 @@ private fun CirakChatDialog(
         }
     }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.90f)
+                .padding(horizontal = 14.dp),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = WarmCream),
+            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
                     modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Turquoise),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .background(Brush.linearGradient(listOf(Turquoise, Color(0xFF377B86))))
+                        .padding(start = 18.dp, top = 16.dp, end = 10.dp, bottom = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Chat,
-                        contentDescription = null,
-                        tint = WarmCream,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.18f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Chat,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Çırak",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = Color.White
+                        )
+                        Text(
+                            text = "İhtiyacına uygun işletmeleri bulur",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = 0.86f)
+                        )
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text("Kapat", color = Color.White)
+                    }
                 }
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = "Çırak - Mahalle Asistanı",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = DarkInk
-                    )
-                    Text(
-                        text = "İzin verirsen yakındakileri önce listeler; konumun kaydedilmez.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Turquoise
-                    )
-                }
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(420.dp)
-            ) {
+
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth(),
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color(0xFFF6F4EE), WarmCream))),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(uiState.chatMessages) { message ->
                         ChatMessageBubble(
@@ -832,7 +989,27 @@ private fun CirakChatDialog(
                             }
                         )
                     }
-
+                    if (uiState.chatMessages.size <= 1 && !uiState.isAssistantLoading) {
+                        item {
+                            Column(modifier = Modifier.padding(start = 34.dp, top = 2.dp)) {
+                                Text(
+                                    text = "Şunlardan biriyle başlayabilirsin",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = DarkInk.copy(alpha = 0.66f),
+                                    modifier = Modifier.padding(bottom = 6.dp)
+                                )
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                    items(suggestions) { suggestion ->
+                                        FilterChip(
+                                            selected = false,
+                                            onClick = { onSubmitMessage(suggestion) },
+                                            label = { Text(suggestion, maxLines = 1) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if (uiState.isAssistantLoading) {
                         item {
                             Row(
@@ -840,11 +1017,11 @@ private fun CirakChatDialog(
                                 horizontalArrangement = Arrangement.Start
                             ) {
                                 Card(
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(containerColor = LightBeige)
+                                    shape = RoundedCornerShape(18.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color.White)
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(12.dp),
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         CircularProgressIndicator(
@@ -852,11 +1029,12 @@ private fun CirakChatDialog(
                                             color = Turquoise,
                                             strokeWidth = 2.dp
                                         )
-                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Spacer(modifier = Modifier.width(9.dp))
                                         Text(
-                                            text = "Çırak düşünüyor...",
+                                            text = if (uiState.isAssistantCatalogReady) "Çırak düşünüyor…"
+                                            else "Yakındaki işletmeler yükleniyor…",
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = DarkInk.copy(alpha = 0.7f)
+                                            color = DarkInk.copy(alpha = 0.72f)
                                         )
                                     }
                                 }
@@ -865,20 +1043,21 @@ private fun CirakChatDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedTextField(
                         value = inputText,
                         onValueChange = { inputText = it },
-                        placeholder = { Text("İhtiyacınızı yazın (örn. Musluğum akıtıyor)...") },
+                        placeholder = { Text("Bir ihtiyacını ya da bütçeni yaz…") },
                         modifier = Modifier
                             .weight(1f)
-                            .height(56.dp),
-                        shape = RoundedCornerShape(24.dp),
+                            .height(58.dp),
+                        shape = RoundedCornerShape(22.dp),
                         singleLine = true
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -891,7 +1070,7 @@ private fun CirakChatDialog(
                         },
                         enabled = !uiState.isAssistantLoading && inputText.isNotBlank(),
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(50.dp)
                             .clip(CircleShape)
                             .background(if (inputText.isBlank()) LightBeige else Turquoise)
                     ) {
@@ -903,13 +1082,8 @@ private fun CirakChatDialog(
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Kapat", color = DarkInk)
-            }
         }
-    )
+    }
 }
 
 @Composable
@@ -924,24 +1098,39 @@ private fun ChatMessageBubble(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
-        Card(
-            shape = RoundedCornerShape(
-                topStart = 12.dp,
-                topEnd = 12.dp,
-                bottomStart = if (isUser) 12.dp else 4.dp,
-                bottomEnd = if (isUser) 4.dp else 12.dp
-            ),
-            colors = CardDefaults.cardColors(
-                containerColor = if (isUser) SkyBlue else LightBeige
-            ),
-            modifier = Modifier.widthIn(max = 280.dp)
-        ) {
-            Text(
-                text = message.text,
-                modifier = Modifier.padding(10.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = DarkInk
-            )
+        Row(verticalAlignment = Alignment.Bottom) {
+            if (!isUser) {
+                Box(
+                    modifier = Modifier
+                        .padding(end = 7.dp, bottom = 3.dp)
+                        .size(27.dp)
+                        .clip(CircleShape)
+                        .background(Turquoise),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Ç", color = Color.White, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                }
+            }
+            Card(
+                shape = RoundedCornerShape(
+                    topStart = 18.dp,
+                    topEnd = 18.dp,
+                    bottomStart = if (isUser) 18.dp else 5.dp,
+                    bottomEnd = if (isUser) 5.dp else 18.dp
+                ),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isUser) SkyBlue else Color.White
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                modifier = Modifier.widthIn(max = 300.dp)
+            ) {
+                Text(
+                    text = message.text,
+                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = DarkInk
+                )
+            }
         }
 
         if (!isUser && message.merchants.isNotEmpty()) {
@@ -951,7 +1140,7 @@ private fun ChatMessageBubble(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = "🏬 Önerilen Esnaflar (${message.merchants.size}):",
+                    text = "Yakındaki işletmeler (${message.merchants.size})",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     color = DarkInk
                 )
@@ -985,10 +1174,16 @@ private fun RealMerchantCard(
         animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f),
         label = "merchant_card_press_scale"
     )
+    val cardElevation by animateDpAsState(
+        targetValue = if (pressed) 7.dp else 2.dp,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 420f),
+        label = "merchant_card_press_elevation"
+    )
     val publicAddress = merchant.businessAddress.ifBlank { merchant.address }
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .animateContentSize(animationSpec = tween(280, easing = FastOutSlowInEasing))
             .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
             .clickable(
                 interactionSource = interactionSource,
@@ -999,7 +1194,7 @@ private fun RealMerchantCard(
         colors = CardDefaults.cardColors(
             containerColor = LightBeige
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = cardElevation)
     ) {
         Row(
             modifier = Modifier
@@ -1214,16 +1409,14 @@ private fun CustomerAppointmentsSection(
                                 onClick = { onPayDeposit(app) },
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text("Demo depozito öde · ${app.depositAmount} TL")
+                                Text("Depozitoyu öde · ${app.depositAmount} TL")
                             }
-                            Text("Bu yalnızca demo durumudur; gerçek para çekilmez.", style = MaterialTheme.typography.labelSmall, color = DarkInk.copy(alpha = 0.7f))
                         }
                         if (app.status == "service_completed" && app.balancePaymentStatus == "requested") {
                             Spacer(modifier = Modifier.height(8.dp))
                             Button(onClick = { onPayBalance(app) }, modifier = Modifier.fillMaxWidth()) {
-                                Text("Kalan tutarı demo olarak tamamla · ${(app.price - app.depositAmount).coerceAtLeast(0.0)} TL")
+                                Text("Kalan tutarı öde · ${(app.price - app.depositAmount).coerceAtLeast(0.0)} TL")
                             }
-                            Text("Bu yalnızca demo durumudur; gerçek para çekilmez.", style = MaterialTheme.typography.labelSmall, color = DarkInk.copy(alpha = 0.7f))
                         }
 
                         Spacer(modifier = Modifier.height(6.dp))
@@ -1337,8 +1530,8 @@ private fun CompactProgressTrack(labels: List<String>, currentStep: Int) {
 }
 
 private fun orderPaymentLabel(method: String, status: String): String = when {
-    status == "demo_paid" -> "demo kart ödemesi kaydedildi · gerçek tahsilat yok"
-    status == "demo_refunded" -> "demo iadesi işlendi · gerçek para hareketi yok"
+    status == "demo_paid" -> "Kart ödemesi kaydedildi"
+    status == "demo_refunded" -> "İade kaydı oluşturuldu"
     method == "cash_on_delivery" -> "Kapıda nakit"
     method == "pay_at_store" -> "İşletmede ödeme"
     else -> "Ödeme teslimde yapılacak"
@@ -1346,15 +1539,15 @@ private fun orderPaymentLabel(method: String, status: String): String = when {
 
 private fun depositStatusLabel(status: String): String = when (status) {
     "not_required" -> "Depozito yok"
-    "demo_paid" -> "demo olarak ödendi"
-    "demo_refunded" -> "demo iadesi işlendi"
+    "demo_paid" -> "ödeme kaydedildi"
+    "demo_refunded" -> "iade kaydedildi"
     "cash_paid" -> "elden alındı"
-    else -> "demo ödemesi bekleniyor"
+    else -> "ödeme bekleniyor"
 }
 
 private fun balanceStatusLabel(status: String): String = when (status) {
     "requested" -> "esnaf ödeme talep etti"
-    "demo_paid" -> "demo olarak tamamlandı"
+    "demo_paid" -> "ödeme kaydedildi"
     "cash_paid" -> "elden alındı"
     else -> "hizmet sonunda ödenecek"
 }
@@ -1505,7 +1698,7 @@ private fun CustomerOrdersSection(
                             Text("Esnafın ${deadline} saatine kadar onaylaması bekleniyor. Süre dolarsa sipariş otomatik iptal edilir.", style = MaterialTheme.typography.bodySmall, color = SkyBlue)
                         }
                         if (order.status == "cancelled" && order.paymentStatus == "demo_refunded") {
-                            Text("Demo iadesi işlendi; gerçek para hareketi olmadı.", style = MaterialTheme.typography.bodySmall, color = Turquoise)
+                            Text("İade kaydı oluşturuldu.", style = MaterialTheme.typography.bodySmall, color = Turquoise)
                         }
                         if (order.status == "cancelled" && order.cancellationReason == "merchant_approval_timeout") {
                             Text("30 dakika içinde esnaf onayı gelmediği için otomatik iptal edildi.", style = MaterialTheme.typography.bodySmall, color = Terracotta)
@@ -1665,22 +1858,40 @@ private fun FavoritesSection(
 }
 
 @Composable
-private fun DemoPaymentConfirmationDialog(
+private fun PaymentConfirmationDialog(
     title: String,
     amount: Double,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
+    var cardHolder by remember { mutableStateOf("") }
+    var cardNumber by remember { mutableStateOf("") }
+    var cardExpiry by remember { mutableStateOf("") }
+    var cardCvv by remember { mutableStateOf("") }
+    val cardIsComplete = isPaymentCardComplete(cardHolder, cardNumber, cardExpiry, cardCvv)
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Text("Tutar: %.2f TL".format(amount))
-                Text("Bu bir demo işlemidir. Kart bilgisi alınmaz ve gerçek para çekilmez.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                PaymentCardFields(
+                    cardHolder = cardHolder,
+                    cardNumber = cardNumber,
+                    cardExpiry = cardExpiry,
+                    cardCvv = cardCvv,
+                    onCardHolderChange = { cardHolder = it },
+                    onCardNumberChange = { cardNumber = it },
+                    onCardExpiryChange = { cardExpiry = it },
+                    onCardCvvChange = { cardCvv = it }
+                )
             }
         },
-        confirmButton = { Button(onClick = onConfirm) { Text("Demo ödemeyi tamamla") } },
+        confirmButton = { Button(onClick = onConfirm, enabled = cardIsComplete) { Text("Ödemeyi tamamla") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Vazgeç") } }
     )
 }
@@ -1691,11 +1902,9 @@ private fun DemoPaymentConfirmationDialog(
 @Composable
 private fun BookAppointmentDialog(
     service: ServiceModel,
-    initialName: String,
-    initialPhone: String,
     errorMessage: String?,
     onDismiss: () -> Unit,
-    onConfirm: (date: String, time: String, note: String?, recipientName: String, phone: String, serviceLocation: String, serviceAddress: String) -> Unit,
+    onConfirm: (date: String, time: String, note: String?, serviceLocation: String, serviceAddress: String) -> Unit,
     isSaving: Boolean
 ) {
     val dateOptions = remember {
@@ -1748,11 +1957,13 @@ private fun BookAppointmentDialog(
         mutableStateOf(availableTimeSlots.firstOrNull() ?: "")
     }
     var note by remember { mutableStateOf("") }
-    var recipientName by remember { mutableStateOf(initialName) }
-    var phone by remember { mutableStateOf(initialPhone) }
     var serviceLocation by remember { mutableStateOf("at_business") }
     var serviceAddress by remember { mutableStateOf("") }
     var currentStep by remember { mutableIntStateOf(0) }
+    var cardHolder by remember { mutableStateOf("") }
+    var cardNumber by remember { mutableStateOf("") }
+    var cardExpiry by remember { mutableStateOf("") }
+    var cardCvv by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = { if (!isSaving) onDismiss() },
@@ -1790,7 +2001,7 @@ private fun BookAppointmentDialog(
                         Text("Rezervasyon depozitosu: ${service.depositAmount} TL", style = MaterialTheme.typography.bodySmall)
                         Text("Hizmet sonrası kalan tutar: ${(service.price - service.depositAmount).coerceAtLeast(0.0)} TL", style = MaterialTheme.typography.bodySmall)
                         Text(
-                            if (service.depositAmount > 0.0) "Depozito onay isteğinden önce ödenir; işlem demo olarak kaydedilir."
+                            if (service.depositAmount > 0.0) "Depozito randevu talebi sırasında ödenir."
                             else "Bu hizmet için depozito yok.",
                             style = MaterialTheme.typography.labelSmall,
                             color = DarkInk.copy(alpha = 0.8f)
@@ -1862,19 +2073,14 @@ private fun BookAppointmentDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
-                OutlinedTextField(
-                    value = recipientName,
-                    onValueChange = { recipientName = it.take(60) },
-                    label = { Text("Ad soyad") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { phone = it.take(20) },
-                    label = { Text("Telefon") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                Text(
+                    if (serviceLocation == "at_customer") {
+                        "Ad, telefon ve e-posta paylaşılmaz. Hizmet adresi randevu için işletmeye iletilir; iletişim uygulama içi mesajlaşmadan yürütülür."
+                    } else {
+                        "Ad, telefon ve e-posta paylaşılmaz. İletişim uygulama içi mesajlaşmadan yürütülür."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = DarkInk.copy(alpha = 0.75f)
                 )
                 OutlinedTextField(
                     value = note,
@@ -1896,7 +2102,6 @@ private fun BookAppointmentDialog(
                         ) {
                             Text(service.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = DarkInk)
                             Text("Randevu: $selectedDate · $selectedTime", color = DarkInk)
-                            Text("Müşteri: $recipientName · $phone", style = MaterialTheme.typography.bodySmall, color = DarkInk)
                             Text(
                                 if (serviceLocation == "at_business") "Hizmet yeri: İşletmede" else "Hizmet adresi: $serviceAddress",
                                 style = MaterialTheme.typography.bodySmall,
@@ -1904,10 +2109,21 @@ private fun BookAppointmentDialog(
                             )
                             if (note.isNotBlank()) Text("Not: $note", style = MaterialTheme.typography.bodySmall, color = DarkInk)
                             Text("Hizmet bedeli: ${service.price} TL", style = MaterialTheme.typography.bodySmall, color = DarkInk)
-                            Text("Şimdi ödenecek depozito: ${service.depositAmount} TL", fontWeight = FontWeight.Bold, color = Turquoise)
+                            Text("Depozito tutarı: ${service.depositAmount} TL", fontWeight = FontWeight.Bold, color = Turquoise)
                             Text("Hizmet sonrası kalan: ${(service.price - service.depositAmount).coerceAtLeast(0.0)} TL", style = MaterialTheme.typography.bodySmall, color = DarkInk)
-                            Text("Demo işlemidir; gerçek para çekilmez. Depozito demo olarak işaretlendikten sonra talebiniz esnaf onayına gönderilir.", style = MaterialTheme.typography.labelSmall, color = DarkInk.copy(alpha = 0.8f))
                         }
+                    }
+                    if (service.depositAmount > 0.0) {
+                        PaymentCardFields(
+                            cardHolder = cardHolder,
+                            cardNumber = cardNumber,
+                            cardExpiry = cardExpiry,
+                            cardCvv = cardCvv,
+                            onCardHolderChange = { cardHolder = it },
+                            onCardNumberChange = { cardNumber = it },
+                            onCardExpiryChange = { cardExpiry = it },
+                            onCardCvvChange = { cardCvv = it }
+                        )
                     }
                 }
                 if (errorMessage != null) Text(errorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -1916,17 +2132,17 @@ private fun BookAppointmentDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (selectedTime.isNotBlank() && recipientName.isNotBlank() && phone.isNotBlank() &&
-                        (serviceLocation == "at_business" || serviceAddress.isNotBlank())) {
+                    if (selectedTime.isNotBlank() && (serviceLocation == "at_business" || serviceAddress.isNotBlank())) {
                         if (currentStep == 0 && service.depositAmount > 0.0) {
                             currentStep = 1
                         } else {
-                            onConfirm(selectedDate, selectedTime, note, recipientName.trim(), phone.trim(), serviceLocation, serviceAddress.trim())
+                            onConfirm(selectedDate, selectedTime, note, serviceLocation, serviceAddress.trim())
                         }
                     }
                 },
-                enabled = !isSaving && selectedTime.isNotBlank() && recipientName.isNotBlank() && phone.isNotBlank() &&
-                    (serviceLocation == "at_business" || serviceAddress.isNotBlank()),
+                enabled = !isSaving && selectedTime.isNotBlank() &&
+                    (serviceLocation == "at_business" || serviceAddress.isNotBlank()) &&
+                    (currentStep == 0 || isPaymentCardComplete(cardHolder, cardNumber, cardExpiry, cardCvv)),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = SkyBlue,
                     contentColor = DarkInk
@@ -1941,7 +2157,7 @@ private fun BookAppointmentDialog(
                 } else {
                     Text(
                         when {
-                            currentStep == 1 -> "Demo depozitoyu öde ve onay iste"
+                            currentStep == 1 -> "Depozitoyu öde ve onay iste"
                             service.depositAmount > 0.0 -> "Depozito ödemesine geç"
                             else -> stringResource(R.string.send_request)
                         }

@@ -46,7 +46,7 @@ class ServiceRepository(
     fun getServicesFlow(): Flow<List<ServiceModel>> = callbackFlow {
         val listenerRegistration = servicesCollection
             .orderBy("createdAt", Query.Direction.DESCENDING)
-            .limit(200)
+            .limit(2000)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     close(error)

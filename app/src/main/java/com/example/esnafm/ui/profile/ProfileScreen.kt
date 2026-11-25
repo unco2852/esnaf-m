@@ -316,7 +316,7 @@ fun ProfileScreen(
                         ProfileOptionRow(
                             icon = Icons.Default.Description,
                             title = stringResource(R.string.terms_of_service),
-                            subtitle = stringResource(R.string.terms_of_service_desc),
+                            subtitle = "Ön bilgilendirme ve kullanıcı sözleşmeleri",
                             onClick = onNavigateToTermsOfService
                         )
 

@@ -6,6 +6,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
+import com.google.firebase.storage.StorageException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -23,6 +24,7 @@ class MerchantMessageRepository(
     private val storage: FirebaseStorage = FirebaseStorage.getInstance()
 ) {
     private val messages = firestore.collection("merchant_messages")
+    private val conversations = firestore.collection("merchant_conversations")
 
     fun getMerchantMessagesFlow(merchantId: String): Flow<List<MerchantMessageModel>> = callbackFlow {
         if (merchantId.isBlank()) {
@@ -31,19 +33,27 @@ class MerchantMessageRepository(
             return@callbackFlow
         }
 
-        val registration = messages
+        val registration = conversations
             .whereEqualTo("merchantId", merchantId)
-            .limit(200)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     close(error)
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
-                    val latestFirst = snapshot.documents.mapNotNull { doc ->
-                        doc.data?.let { MerchantMessageModel.fromMap(doc.id, it) }
+                    val latestFirst = snapshot.documents.mapNotNull { document ->
+                        if (document.getString("status") == "closed") return@mapNotNull null
+                        val customerId = document.getString("customerId") ?: return@mapNotNull null
+                        MerchantMessageModel(
+                            id = document.getString("lastMessageId") ?: document.id,
+                            customerId = customerId,
+                            merchantId = merchantId,
+                            createdAt = document.getLong("lastMessageAt")
+                                ?: document.getLong("createdAt")
+                                ?: 0L
+                        )
                     }.sortedByDescending { it.createdAt }
-                    launch { trySend(resolveAttachmentUrls(latestFirst)) }
+                    trySend(latestFirst)
                 }
             }
 
@@ -56,15 +66,19 @@ class MerchantMessageRepository(
         customerId: String,
         currentUserId: String
     ): Flow<List<MerchantMessageModel>> = callbackFlow {
-        if (merchantId.isBlank() || customerId.isBlank() || currentUserId.isBlank()) {
+        val authenticatedUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        if (merchantId.isBlank() || customerId.isBlank() ||
+            authenticatedUserId.isBlank() || currentUserId != authenticatedUserId ||
+            (authenticatedUserId != merchantId && authenticatedUserId != customerId)
+        ) {
             trySend(emptyList())
             close()
             return@callbackFlow
         }
 
-        val participantField = if (currentUserId == merchantId) "merchantId" else "customerId"
+        val participantField = if (authenticatedUserId == merchantId) "merchantId" else "customerId"
         val registration = messages
-            .whereEqualTo(participantField, currentUserId)
+            .whereEqualTo(participantField, authenticatedUserId)
             .limit(200)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
@@ -110,23 +124,30 @@ class MerchantMessageRepository(
 
             val conversationRef = firestore.collection("merchant_conversations")
                 .document("$merchantId--$customerId")
+            val document = messages.document()
             firestore.runTransaction { transaction ->
                 val conversation = transaction.get(conversationRef)
                 if (!conversation.exists()) {
                     require(senderId == customerId) { "Sohbeti önce müşteri başlatmalıdır." }
+                    val now = System.currentTimeMillis()
                     transaction.set(conversationRef, mapOf(
                         "customerId" to customerId,
                         "merchantId" to merchantId,
-                        "createdAt" to System.currentTimeMillis()
+                        "createdAt" to now,
+                        "lastMessageAt" to now,
+                        "lastMessageId" to "pending",
+                        "status" to "active"
                     ))
                 } else {
                     require(conversation.getString("customerId") == customerId && conversation.getString("merchantId") == merchantId) {
                         "Sohbet katılımcıları doğrulanamadı."
                     }
+                    require(conversation.getString("status") != "closed") {
+                        "Bu sohbet esnaf tarafından kapatıldı. İşletme sayfasından yeni bir sohbet başlatabilirsiniz."
+                    }
                 }
             }.await()
 
-            val document = messages.document()
             var attachmentUrl = ""
             var attachmentPath = ""
             val safeName = attachmentName
@@ -149,6 +170,7 @@ class MerchantMessageRepository(
                 customerId = customerId,
                 merchantId = merchantId,
                 message = trimmedMessage,
+                createdAt = System.currentTimeMillis(),
                 attachmentUrl = attachmentUrl,
                 attachmentPath = attachmentPath,
                 attachmentName = safeName,
@@ -161,11 +183,85 @@ class MerchantMessageRepository(
                 },
                 attachmentSizeBytes = attachmentSizeBytes.coerceAtLeast(0L)
             )
-            document.set(model.toMap()).await()
+            val batch = firestore.batch()
+            batch.set(document, model.toMap())
+            batch.update(conversationRef, mapOf(
+                "lastMessageAt" to model.createdAt,
+                "lastMessageId" to document.id
+            ))
+            batch.commit().await()
             Result.success(document.id)
         } catch (e: Exception) {
             runCatching { uploadedRef?.delete()?.await() }
             Result.failure(e)
+        }
+    }
+
+    /** Esnafın bitirdiği sohbeti, mesajları ve sohbet eklerini kalıcı olarak siler. */
+    suspend fun finishConversation(merchantId: String, customerId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val authenticatedUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+            require(merchantId.isNotBlank() && customerId.isNotBlank()) { "Sohbet bilgileri bulunamadı." }
+            require(authenticatedUserId == merchantId) { "Bu sohbeti yalnızca ilgili işletme kapatabilir." }
+
+            val conversationRef = firestore.collection("merchant_conversations")
+                .document("$merchantId--$customerId")
+            val conversationSnapshot = conversationRef.get().await()
+            if (conversationSnapshot.exists()) {
+                require(conversationSnapshot.getString("merchantId") == merchantId &&
+                    conversationSnapshot.getString("customerId") == customerId) {
+                    "Sohbet katılımcıları doğrulanamadı."
+                }
+                if (conversationSnapshot.getString("status") != "closed") {
+                    conversationRef.update(
+                        mapOf("status" to "closed", "closedAt" to System.currentTimeMillis())
+                    ).await()
+                }
+            }
+
+            val attachmentPrefix = "merchant_chats/$merchantId/$customerId/"
+            var cursor: com.google.firebase.firestore.DocumentSnapshot? = null
+            while (true) {
+                var query = messages
+                    .whereEqualTo("merchantId", merchantId)
+                    .orderBy(com.google.firebase.firestore.FieldPath.documentId())
+                    .limit(400)
+                if (cursor != null) query = query.startAfter(cursor!!)
+                val page = query.get().await()
+                if (page.isEmpty) break
+                cursor = page.documents.last()
+
+                val conversationMessages = page.documents.filter { document ->
+                    val data = document.data.orEmpty()
+                    val storedCustomerId = if (data.containsKey("customerId")) {
+                        document.getString("customerId")
+                    } else {
+                        document.getString("senderId")
+                    }
+                    storedCustomerId == customerId
+                }
+                if (conversationMessages.isEmpty()) continue
+
+                val attachmentPaths = conversationMessages.mapNotNull { it.getString("attachmentPath") }
+                    .filter { it.startsWith(attachmentPrefix) }
+                    .distinct()
+                for (path in attachmentPaths) {
+                    try {
+                        storage.reference.child(path).delete().await()
+                    } catch (error: StorageException) {
+                        if (error.errorCode != StorageException.ERROR_OBJECT_NOT_FOUND) throw error
+                    }
+                }
+
+                val batch = firestore.batch()
+                conversationMessages.forEach { batch.delete(it.reference) }
+                batch.commit().await()
+            }
+
+            if (conversationRef.get().await().exists()) conversationRef.delete().await()
+            Result.success(Unit)
+        } catch (error: Exception) {
+            Result.failure(error)
         }
     }
 

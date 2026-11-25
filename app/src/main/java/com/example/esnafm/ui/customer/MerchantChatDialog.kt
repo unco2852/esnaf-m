@@ -46,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -90,7 +91,8 @@ fun MerchantChatDialog(
     currentUserId: String,
     title: String,
     isMerchant: Boolean,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onConversationFinished: () -> Unit
 ) {
     val context = LocalContext.current
     val repository = remember { MerchantMessageRepository() }
@@ -101,6 +103,7 @@ fun MerchantChatDialog(
     var pendingAttachment by remember { mutableStateOf<PendingChatAttachment?>(null) }
     var attachmentMenuExpanded by remember { mutableStateOf(false) }
     var isSending by remember { mutableStateOf(false) }
+    var isDeleting by remember(merchantId, customerId) { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var fullScreenImage by remember { mutableStateOf<String?>(null) }
 
@@ -168,7 +171,7 @@ fun MerchantChatDialog(
     }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isDeleting) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
         Surface(
@@ -182,7 +185,7 @@ fun MerchantChatDialog(
                     modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer).padding(horizontal = 8.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onDismiss) {
+                    IconButton(onClick = onDismiss, enabled = !isDeleting) {
                         Icon(Icons.Default.Close, contentDescription = "Sohbeti kapat")
                     }
                     Column(Modifier.weight(1f)) {
@@ -194,6 +197,32 @@ fun MerchantChatDialog(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                    }
+                    if (isMerchant) {
+                        TextButton(
+                            onClick = {
+                                if (isDeleting || currentUserId != merchantId) return@TextButton
+                                isDeleting = true
+                                errorMessage = null
+                                scope.launch {
+                                    val result = repository.finishConversation(merchantId, customerId)
+                                    result.fold(
+                                        onSuccess = { onConversationFinished() },
+                                        onFailure = {
+                                            errorMessage = it.localizedMessage ?: "Sohbet silinemedi."
+                                            isDeleting = false
+                                        }
+                                    )
+                                }
+                            },
+                            enabled = !isDeleting && currentUserId == merchantId
+                        ) {
+                            if (isDeleting) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("Bu sohbet bitti", maxLines = 1)
+                            }
+                        }
                     }
                 }
 
@@ -275,7 +304,7 @@ fun MerchantChatDialog(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Box {
-                        IconButton(onClick = { attachmentMenuExpanded = true }, enabled = !isSending && currentUserId.isNotBlank()) {
+                        IconButton(onClick = { attachmentMenuExpanded = true }, enabled = !isSending && !isDeleting && currentUserId.isNotBlank()) {
                             Icon(Icons.Default.AttachFile, contentDescription = "Fotoğraf, video veya dosya ekle")
                         }
                         DropdownMenu(expanded = attachmentMenuExpanded, onDismissRequest = { attachmentMenuExpanded = false }) {
@@ -309,13 +338,14 @@ fun MerchantChatDialog(
                         value = draft,
                         onValueChange = { if (it.length <= 2000) draft = it },
                         modifier = Modifier.weight(1f),
+                        enabled = !isDeleting,
                         placeholder = { Text("Mesaj yaz…") },
                         maxLines = 5,
                         shape = RoundedCornerShape(24.dp)
                     )
                     IconButton(
                         onClick = {
-                            if (isSending || currentUserId.isBlank()) return@IconButton
+                            if (isSending || isDeleting || currentUserId.isBlank()) return@IconButton
                             val attachment = pendingAttachment
                             if (draft.isBlank() && attachment == null) return@IconButton
                             isSending = true
@@ -341,7 +371,7 @@ fun MerchantChatDialog(
                                 isSending = false
                             }
                         },
-                        enabled = !isSending && currentUserId.isNotBlank() && (draft.isNotBlank() || pendingAttachment != null),
+                        enabled = !isSending && !isDeleting && currentUserId.isNotBlank() && (draft.isNotBlank() || pendingAttachment != null),
                         modifier = Modifier.padding(bottom = 5.dp).size(46.dp).background(MaterialTheme.colorScheme.primary, CircleShape)
                     ) {
                         if (isSending) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)

@@ -75,14 +75,15 @@ service cloud.firestore {
                     && request.resource.data.keys().hasOnly([
                       'uid', 'role', 'businessName', 'category', 'businessDescription',
                       'businessPhone', 'businessAddress', 'workingHours', 'businessLogoUrl',
-                      'businessLatitude', 'businessLongitude', 'city', 'district', 'isOpen'
+                      'businessLatitude', 'businessLongitude', 'city', 'district', 'isOpen', 'isDemo'
                     ])
                     && request.resource.data.businessName is string
                     && request.resource.data.businessName.size() > 0
                     && request.resource.data.category is string
                     && request.resource.data.businessPhone is string
                     && request.resource.data.businessAddress is string
-                    && request.resource.data.isOpen is bool;
+                    && request.resource.data.isOpen is bool
+                    && (!('isDemo' in request.resource.data) || request.resource.data.isDemo is bool);
       allow update: if request.auth != null
                     && request.auth.uid == merchantId
                     && resource.data.uid == merchantId
@@ -93,14 +94,15 @@ service cloud.firestore {
                     && request.resource.data.keys().hasOnly([
                       'uid', 'role', 'businessName', 'category', 'businessDescription',
                       'businessPhone', 'businessAddress', 'workingHours', 'businessLogoUrl',
-                      'businessLatitude', 'businessLongitude', 'city', 'district', 'isOpen'
+                      'businessLatitude', 'businessLongitude', 'city', 'district', 'isOpen', 'isDemo'
                     ])
                     && request.resource.data.businessName is string
                     && request.resource.data.businessName.size() > 0
                     && request.resource.data.category is string
                     && request.resource.data.businessPhone is string
                     && request.resource.data.businessAddress is string
-                    && request.resource.data.isOpen is bool;
+                    && request.resource.data.isOpen is bool
+                    && (!('isDemo' in request.resource.data) || request.resource.data.isDemo is bool);
       allow delete: if request.auth != null && request.auth.uid == merchantId;
     }
 
@@ -110,14 +112,38 @@ service cloud.firestore {
       allow create: if request.auth != null
                     && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'MERCHANT'
                     && request.resource.data.merchantId == request.auth.uid;
+      // Customer stock changes are accepted only with the matching order in the same atomic write.
       allow update: if request.auth != null
                     && ((resource.data.merchantId == request.auth.uid
                          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'MERCHANT'
                          && request.resource.data.merchantId == resource.data.merchantId)
-                        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock'])
+                        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'stockReservationOrderId'])
+                            && request.resource.data.diff(resource.data).affectedKeys().hasAll(['stock', 'stockReservationOrderId'])
                             && request.resource.data.stock is int
                             && request.resource.data.stock >= 0
-                            && request.resource.data.stock < resource.data.stock));
+                            && request.resource.data.stock < resource.data.stock
+                            && request.resource.data.stockReservationOrderId is string
+                            && getAfter(/databases/$(database)/documents/orders/$(request.resource.data.stockReservationOrderId)).data.itemId == itemId
+                            && getAfter(/databases/$(database)/documents/orders/$(request.resource.data.stockReservationOrderId)).data.customerId == request.auth.uid
+                            && getAfter(/databases/$(database)/documents/orders/$(request.resource.data.stockReservationOrderId)).data.merchantId == resource.data.merchantId
+                            && getAfter(/databases/$(database)/documents/orders/$(request.resource.data.stockReservationOrderId)).data.status == 'pending'
+                            && getAfter(/databases/$(database)/documents/orders/$(request.resource.data.stockReservationOrderId)).data.quantity == resource.data.stock - request.resource.data.stock)
+                        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'stockReleaseOrderId'])
+                            && request.resource.data.diff(resource.data).affectedKeys().hasAll(['stock', 'stockReleaseOrderId'])
+                            && request.resource.data.stock is int
+                            && request.resource.data.stock > resource.data.stock
+                            && request.resource.data.stockReleaseOrderId is string
+                            && get(/databases/$(database)/documents/orders/$(request.resource.data.stockReleaseOrderId)).data.status in ['pending', 'confirmed']
+                            && !('stockRestoredAt' in get(/databases/$(database)/documents/orders/$(request.resource.data.stockReleaseOrderId)).data)
+                            && getAfter(/databases/$(database)/documents/orders/$(request.resource.data.stockReleaseOrderId)).data.itemId == itemId
+                            && getAfter(/databases/$(database)/documents/orders/$(request.resource.data.stockReleaseOrderId)).data.merchantId == resource.data.merchantId
+                            && getAfter(/databases/$(database)/documents/orders/$(request.resource.data.stockReleaseOrderId)).data.status == 'cancelled'
+                            && getAfter(/databases/$(database)/documents/orders/$(request.resource.data.stockReleaseOrderId)).data.stockRestoredAt is int
+                            && getAfter(/databases/$(database)/documents/orders/$(request.resource.data.stockReleaseOrderId)).data.quantity == request.resource.data.stock - resource.data.stock
+                            && ((getAfter(/databases/$(database)/documents/orders/$(request.resource.data.stockReleaseOrderId)).data.customerId == request.auth.uid
+                                 && getAfter(/databases/$(database)/documents/orders/$(request.resource.data.stockReleaseOrderId)).data.cancellationReason == 'customer_cancelled')
+                                || (getAfter(/databases/$(database)/documents/orders/$(request.resource.data.stockReleaseOrderId)).data.merchantId == request.auth.uid
+                                    && getAfter(/databases/$(database)/documents/orders/$(request.resource.data.stockReleaseOrderId)).data.cancellationReason == 'merchant_cancelled'))));
       allow delete: if request.auth != null
                     && resource.data.merchantId == request.auth.uid
                     && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'MERCHANT';
@@ -126,22 +152,35 @@ service cloud.firestore {
     // Siparişler: yalnızca ilgili müşteri ve esnaf okuyabilir; yeni sipariş
     // gerçek ürün/stok bilgileriyle aynı transaction içinde yazılmalıdır.
     match /orders/{orderId} {
+      function stockReleaseMatchesOrder() {
+        let itemPath = /databases/$(database)/documents/items/$(resource.data.itemId);
+        let itemBefore = get(itemPath).data;
+        let itemAfter = getAfter(itemPath).data;
+        return !('stockRestoredAt' in resource.data)
+               && resource.data.quantity is int
+               && resource.data.quantity > 0
+               && itemBefore.stock is int
+               && itemAfter.stock is int
+               && itemAfter.stock == itemBefore.stock + resource.data.quantity
+               && itemAfter.stockReleaseOrderId == orderId;
+      }
+
       allow read: if request.auth != null
                   && (request.auth.uid == resource.data.customerId
                       || request.auth.uid == resource.data.merchantId);
 
       allow create: if request.auth != null
                     && request.resource.data.keys().hasOnly([
-                      'itemId', 'customerId', 'customerEmail', 'merchantId',
+                      'itemId', 'customerId', 'merchantId',
                       'itemTitle', 'price', 'quantity', 'status', 'createdAt',
-                      'recipientName', 'customerPhone', 'deliveryAddress',
+                      'deliveryAddress',
                       'fulfillmentType', 'paymentMethod', 'paymentStatus', 'approvalDeadlineAt',
                       'refundAt', 'cancelledAt', 'cancellationReason'
                     ])
                     && request.resource.data.keys().hasAll([
                       'itemId', 'customerId', 'merchantId', 'itemTitle',
-                      'price', 'quantity', 'status', 'createdAt', 'recipientName',
-                      'customerPhone', 'deliveryAddress', 'fulfillmentType',
+                      'price', 'quantity', 'status', 'createdAt',
+                      'deliveryAddress', 'fulfillmentType',
                       'paymentMethod', 'paymentStatus', 'approvalDeadlineAt'
                     ])
                     && request.resource.data.customerId == request.auth.uid
@@ -152,10 +191,6 @@ service cloud.firestore {
                             && request.resource.data.paymentStatus == 'unpaid'))
                     && request.resource.data.paymentMethod in ['cash_on_delivery', 'pay_at_store', 'mock_card']
                     && request.resource.data.fulfillmentType in ['delivery', 'pickup']
-                    && request.resource.data.recipientName is string
-                    && request.resource.data.recipientName.size() > 0
-                    && request.resource.data.customerPhone is string
-                    && request.resource.data.customerPhone.size() > 0
                     && (request.resource.data.fulfillmentType == 'pickup'
                         || (request.resource.data.deliveryAddress is string
                             && request.resource.data.deliveryAddress.size() > 0))
@@ -164,6 +199,8 @@ service cloud.firestore {
                     && (request.resource.data.price is int || request.resource.data.price is float)
                     && request.resource.data.price >= 0
                     && request.resource.data.createdAt is int
+                    && request.resource.data.createdAt >= request.time.toMillis() - 300000
+                    && request.resource.data.createdAt <= request.time.toMillis() + 300000
                     && request.resource.data.approvalDeadlineAt is int
                     && request.resource.data.approvalDeadlineAt == request.resource.data.createdAt + 1800000
                     && request.resource.data.itemId is string
@@ -175,24 +212,27 @@ service cloud.firestore {
                     && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.isActive == true
                     && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.stock >= request.resource.data.quantity
                     && getAfter(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.stock
-                       == get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.stock - request.resource.data.quantity;
+                       == get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.stock - request.resource.data.quantity
+                    && getAfter(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.stockReservationOrderId == orderId;
 
       allow update: if request.auth != null
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                      'status', 'paymentStatus', 'refundAt', 'cancelledAt', 'cancellationReason'
+                      'status', 'paymentStatus', 'refundAt', 'cancelledAt', 'cancellationReason', 'stockRestoredAt'
                     ])
                     && ((request.auth.uid == resource.data.customerId
                          && resource.data.status == 'pending'
                          && request.resource.data.status == 'cancelled'
                          && request.resource.data.cancelledAt is int
                          && request.resource.data.cancellationReason == 'customer_cancelled'
+                         && request.resource.data.stockRestoredAt is int
+                         && stockReleaseMatchesOrder()
                          && ((resource.data.paymentStatus == 'demo_paid'
                               && request.resource.data.paymentStatus == 'demo_refunded'
                               && request.resource.data.refundAt is int
-                              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'paymentStatus', 'refundAt', 'cancelledAt', 'cancellationReason']))
+                              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'paymentStatus', 'refundAt', 'cancelledAt', 'cancellationReason', 'stockRestoredAt']))
                              || (resource.data.paymentStatus != 'demo_paid'
                                  && request.resource.data.paymentStatus == resource.data.paymentStatus
-                                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancellationReason']))))
+                                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancellationReason', 'stockRestoredAt']))))
                         || (request.auth.uid == resource.data.merchantId
                             && ((resource.data.status == 'pending'
                                  && ((request.resource.data.status == 'preparing'
@@ -214,11 +254,15 @@ service cloud.firestore {
                                     && request.resource.data.status == 'cancelled'
                                     && request.resource.data.cancelledAt is int
                                     && request.resource.data.cancellationReason == 'merchant_cancelled'
+                                    && request.resource.data.stockRestoredAt is int
+                                    && stockReleaseMatchesOrder()
                                     && ((resource.data.paymentStatus == 'demo_paid'
                                          && request.resource.data.paymentStatus == 'demo_refunded'
-                                         && request.resource.data.refundAt is int)
+                                         && request.resource.data.refundAt is int
+                                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'paymentStatus', 'refundAt', 'cancelledAt', 'cancellationReason', 'stockRestoredAt']))
                                         || (resource.data.paymentStatus != 'demo_paid'
-                                            && request.resource.data.paymentStatus == resource.data.paymentStatus))))));
+                                            && request.resource.data.paymentStatus == resource.data.paymentStatus
+                                            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancellationReason', 'stockRestoredAt'])))))));
       allow delete: if false;
     }
 
@@ -251,9 +295,9 @@ service cloud.firestore {
 
       allow create: if request.auth != null
                     && request.resource.data.keys().hasOnly([
-                      'customerId', 'customerEmail', 'merchantId', 'serviceId', 'serviceTitle',
-                      'price', 'depositAmount', 'depositPaidAt', 'date', 'time', 'note', 'status', 'createdAt', 'recipientName',
-                      'customerPhone', 'serviceLocation', 'serviceAddress', 'depositPaymentStatus',
+                      'customerId', 'merchantId', 'serviceId', 'serviceTitle',
+                      'price', 'depositAmount', 'depositPaidAt', 'date', 'time', 'note', 'status', 'createdAt',
+                      'serviceLocation', 'serviceAddress', 'depositPaymentStatus',
                       'depositRefundAt', 'balancePaymentStatus', 'balancePaymentRequestedAt', 'balancePaidAt',
                       'cancelledAt', 'cancellationReason', 'slotDateKey', 'slotTimeKey'
                     ])
@@ -266,10 +310,6 @@ service cloud.firestore {
                             && request.resource.data.depositPaymentStatus == 'not_required'
                             && request.resource.data.depositPaidAt == null))
                     && request.resource.data.balancePaymentStatus == 'unpaid'
-                    && request.resource.data.recipientName is string
-                    && request.resource.data.recipientName.size() > 0
-                    && request.resource.data.customerPhone is string
-                    && request.resource.data.customerPhone.size() > 0
                     && request.resource.data.serviceLocation in ['at_business', 'at_customer']
                     && (request.resource.data.serviceLocation == 'at_business'
                         || (request.resource.data.serviceAddress is string
@@ -376,11 +416,27 @@ service cloud.firestore {
     }
 
     match /merchant_conversations/{conversationId} {
+      function activityUpdateMatchesMessage() {
+        return request.resource.data.lastMessageId is string
+               && existsAfter(/databases/$(database)/documents/merchant_messages/$(request.resource.data.lastMessageId))
+               && getAfter(/databases/$(database)/documents/merchant_messages/$(request.resource.data.lastMessageId)).data.senderId == request.auth.uid
+               && getAfter(/databases/$(database)/documents/merchant_messages/$(request.resource.data.lastMessageId)).data.customerId == resource.data.customerId
+               && getAfter(/databases/$(database)/documents/merchant_messages/$(request.resource.data.lastMessageId)).data.merchantId == resource.data.merchantId
+               && getAfter(/databases/$(database)/documents/merchant_messages/$(request.resource.data.lastMessageId)).data.createdAt == request.resource.data.lastMessageAt;
+      }
+
       allow create: if request.auth != null
-                    && request.resource.data.keys().hasOnly(['customerId', 'merchantId', 'createdAt'])
+                    && request.resource.data.keys().hasOnly(['customerId', 'merchantId', 'createdAt', 'lastMessageAt', 'lastMessageId', 'status'])
                     && request.resource.data.customerId == request.auth.uid
                     && request.resource.data.merchantId is string
                     && request.resource.data.merchantId != request.auth.uid
+                    && request.resource.data.createdAt is int
+                    && request.resource.data.createdAt >= request.time.toMillis() - 300000
+                    && request.resource.data.createdAt <= request.time.toMillis() + 300000
+                    && request.resource.data.lastMessageAt is int
+                    && request.resource.data.lastMessageAt == request.resource.data.createdAt
+                    && request.resource.data.lastMessageId is string
+                    && request.resource.data.status == 'active'
                     && conversationId == request.resource.data.merchantId + '--' + request.resource.data.customerId
                     && get(/databases/$(database)/documents/users/$(request.resource.data.merchantId)).data.role == 'MERCHANT';
       allow get: if request.auth != null
@@ -389,7 +445,21 @@ service cloud.firestore {
                      || conversationId.matches('.*--' + request.auth.uid + '$'));
       allow list: if request.auth != null
                   && (request.auth.uid == resource.data.customerId || request.auth.uid == resource.data.merchantId);
-      allow update, delete: if false;
+      allow update: if request.auth != null
+                    && (request.auth.uid == resource.data.customerId || request.auth.uid == resource.data.merchantId)
+                    && ((!('status' in resource.data) || resource.data.status == 'active')
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'lastMessageId'])
+                        && request.resource.data.lastMessageAt is int
+                        && request.resource.data.lastMessageAt >= request.time.toMillis() - 300000
+                        && request.resource.data.lastMessageAt <= request.time.toMillis() + 300000
+                        && activityUpdateMatchesMessage()
+                        || (request.auth.uid == resource.data.merchantId
+                            && request.resource.data.status == 'closed'
+                            && request.resource.data.closedAt is int
+                            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'closedAt'])));
+      allow delete: if request.auth != null
+                    && request.auth.uid == resource.data.merchantId
+                    && resource.data.status == 'closed';
     }
 
     // Esnafa ulaş sohbeti: mesajlarda kullanıcı profili yerine yalnızca taraf UID'leri bulunur.
@@ -420,6 +490,10 @@ service cloud.firestore {
                     && existsAfter(/databases/$(database)/documents/merchant_conversations/$(request.resource.data.merchantId + '--' + request.resource.data.customerId))
                     && getAfter(/databases/$(database)/documents/merchant_conversations/$(request.resource.data.merchantId + '--' + request.resource.data.customerId)).data.customerId == request.resource.data.customerId
                     && getAfter(/databases/$(database)/documents/merchant_conversations/$(request.resource.data.merchantId + '--' + request.resource.data.customerId)).data.merchantId == request.resource.data.merchantId
+                    && (!('status' in getAfter(/databases/$(database)/documents/merchant_conversations/$(request.resource.data.merchantId + '--' + request.resource.data.customerId)).data)
+                        || getAfter(/databases/$(database)/documents/merchant_conversations/$(request.resource.data.merchantId + '--' + request.resource.data.customerId)).data.status == 'active')
+                    && getAfter(/databases/$(database)/documents/merchant_conversations/$(request.resource.data.merchantId + '--' + request.resource.data.customerId)).data.lastMessageAt == request.resource.data.createdAt
+                    && getAfter(/databases/$(database)/documents/merchant_conversations/$(request.resource.data.merchantId + '--' + request.resource.data.customerId)).data.lastMessageId == messageId
                     && (!('attachmentPath' in request.resource.data)
                         || (request.resource.data.attachmentPath is string
                             && request.resource.data.attachmentPath.size() <= 300
@@ -437,7 +511,13 @@ service cloud.firestore {
                   && (request.auth.uid == resource.data.merchantId
                       || request.auth.uid == resource.data.customerId
                       || (!('customerId' in resource.data) && request.auth.uid == resource.data.senderId));
-      allow update, delete: if false;
+      allow delete: if request.auth != null
+                    && request.auth.uid == resource.data.merchantId
+                    && ((('customerId' in resource.data)
+                         && get(/databases/$(database)/documents/merchant_conversations/$(resource.data.merchantId + '--' + resource.data.customerId)).data.status == 'closed')
+                        || (!('customerId' in resource.data)
+                            && get(/databases/$(database)/documents/merchant_conversations/$(resource.data.merchantId + '--' + resource.data.senderId)).data.status == 'closed'));
+      allow update: if false;
     }
 
     // Destek Talepleri

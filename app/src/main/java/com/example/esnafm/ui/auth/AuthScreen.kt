@@ -5,11 +5,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -30,8 +32,11 @@ import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -45,8 +50,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +65,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.esnafm.data.model.UserProfile
 import com.example.esnafm.data.model.UserRole
+import com.example.esnafm.data.legal.LegalDocument
+import com.example.esnafm.data.legal.LegalDocuments
 import com.example.esnafm.ui.components.EsnafımLogo
 import com.example.esnafm.ui.theme.DarkInk
 import com.example.esnafm.ui.theme.LightBeige
@@ -74,9 +84,11 @@ fun AuthScreen(
     role: UserRole,
     onNavigateBack: () -> Unit,
     onAuthSuccess: (UserProfile) -> Unit,
+    onNavigateToPrivacyPolicy: () -> Unit = {},
     viewModel: AuthViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var documentToRead by remember { mutableStateOf<LegalDocument?>(null) }
 
     LaunchedEffect(role) {
         viewModel.setInitialRole(role)
@@ -366,6 +378,37 @@ fun AuthScreen(
                         )
                     }
                 }
+
+                RegistrationSection(
+                    title = "Ön bilgilendirme ve sözleşme",
+                    subtitle = "Kayıt olmak için metinleri okuyup gerekli onayları verin."
+                ) {
+                    ConsentDocumentRow(
+                        checked = uiState.hasReadPreInformation,
+                        label = "Üyelik Ön Bilgilendirme Metni’ni okudum",
+                        onCheckedChange = viewModel::onPreInformationReadChanged,
+                        onReadClick = { documentToRead = LegalDocuments.preInformation }
+                    )
+                    ConsentDocumentRow(
+                        checked = uiState.hasAcceptedUserAgreement,
+                        label = "${LegalDocuments.agreementFor(role).title}’ni okudum ve kabul ediyorum",
+                        onCheckedChange = viewModel::onUserAgreementAcceptedChanged,
+                        onReadClick = {
+                            documentToRead = LegalDocuments.agreementFor(role)
+                        }
+                    )
+                    Text(
+                        text = "Kişisel verilerin işlenmesi hakkında bilgi için KVKK Aydınlatma Metnini ayrıca okuyabilirsiniz.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DarkInk.copy(alpha = 0.75f)
+                    )
+                    TextButton(
+                        onClick = onNavigateToPrivacyPolicy,
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text("KVKK Aydınlatma Metnini görüntüle", color = Turquoise)
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -417,6 +460,95 @@ fun AuthScreen(
             }
         }
     }
+
+    documentToRead?.let { document ->
+        LegalDocumentDialog(
+            document = document,
+            onDismiss = { documentToRead = null }
+        )
+    }
+}
+
+@Composable
+private fun ConsentDocumentRow(
+    checked: Boolean,
+    label: String,
+    onCheckedChange: (Boolean) -> Unit,
+    onReadClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = CheckboxDefaults.colors(checkedColor = Turquoise)
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = DarkInk
+            )
+            TextButton(
+                onClick = onReadClick,
+                contentPadding = PaddingValues(0.dp)
+            ) {
+                Text("Metni oku", color = Turquoise)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LegalDocumentDialog(
+    document: LegalDocument,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = document.title,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = DarkInk
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 440.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Sürüm ${document.version} · ${document.updatedAt}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = DarkInk.copy(alpha = 0.7f)
+                )
+                document.sections.forEach { section ->
+                    Text(
+                        text = section.title,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = DarkInk
+                    )
+                    Text(
+                        text = section.content,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DarkInk.copy(alpha = 0.9f)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Kapat", color = Turquoise)
+            }
+        },
+        containerColor = WarmCream
+    )
 }
 
 @Composable

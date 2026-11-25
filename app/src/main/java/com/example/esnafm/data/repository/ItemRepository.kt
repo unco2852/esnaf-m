@@ -47,7 +47,7 @@ class ItemRepository(
     fun getItemsFlow(): Flow<List<ItemModel>> = callbackFlow {
         val listenerRegistration = itemsCollection
             .orderBy("createdAt", Query.Direction.DESCENDING)
-            .limit(200)
+            .limit(2000)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     // Yedeğe geç: orderBy olmadan dinle

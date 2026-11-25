@@ -24,7 +24,7 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 private val previousMerchantOrderStatuses = setOf("cancelled", "delivered", "completed")
-private val previousMerchantAppointmentStatuses = setOf("cancelled", "rejected", "service_completed", "completed")
+private val previousMerchantAppointmentStatuses = setOf("cancelled", "rejected", "completed")
 
 private fun String.isInMerchantHistory(statuses: Set<String>): Boolean =
     trim().lowercase(Locale.ROOT) in statuses
@@ -436,7 +436,7 @@ class TradesmanPanelViewModel(
                 onSuccess = {
                     val msg = when (newStatus) {
                         "approved" -> "✅ Randevu onaylandı!"
-                        "request_balance" -> "✅ Hizmet tamamlandı; müşteriye demo bakiye ödeme talebi gönderildi."
+                        "request_balance" -> "✅ Hizmet tamamlandı; müşteriye bakiye ödeme talebi gönderildi."
                         "cash_paid" -> "✅ Elden ödeme alındı olarak tamamlandı."
                         else -> "❌ Randevu reddedildi."
                     }

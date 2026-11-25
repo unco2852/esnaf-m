@@ -2,10 +2,13 @@ package com.example.esnafm.data.repository
 
 import com.example.esnafm.data.model.UserProfile
 import com.example.esnafm.data.model.UserRole
+import com.example.esnafm.data.legal.LegalDocumentVersions
+import com.example.esnafm.data.legal.LegalDocuments
 import com.example.esnafm.notifications.NotificationTokenId
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -39,6 +42,8 @@ class AuthRepository {
         pass: String,
         name: String,
         role: UserRole,
+        preInformationAcknowledged: Boolean,
+        userAgreementAccepted: Boolean,
         businessName: String = "",
         category: String = "",
         address: String = "",
@@ -51,9 +56,20 @@ class AuthRepository {
     ): Result<UserProfile> = withContext(Dispatchers.IO) {
         var createdUser: FirebaseUser? = null
         try {
+            require(preInformationAcknowledged) {
+                "Kayıt olmak için Üyelik Ön Bilgilendirme Metni'ni okuduğunuzu onaylayın."
+            }
+            require(userAgreementAccepted) {
+                "Kayıt olmak için kullanıcı sözleşmesini kabul edin."
+            }
             val authResult = auth.createUserWithEmailAndPassword(email, pass).await()
             val uid = authResult.user?.uid ?: throw Exception("Kullanıcı kimliği alınamadı.")
             createdUser = authResult.user
+            val agreementDocumentId = if (role == UserRole.MERCHANT) {
+                LegalDocuments.MERCHANT_AGREEMENT_ID
+            } else {
+                LegalDocuments.CUSTOMER_AGREEMENT_ID
+            }
 
             val profile = UserProfile(
                 uid = uid,
@@ -69,7 +85,21 @@ class AuthRepository {
                 businessDescription = businessDescription,
                 businessPhone = businessPhone.ifBlank { phone },
                 businessAddress = if (role == UserRole.MERCHANT) address else "",
-                workingHours = workingHours.ifBlank { "09:00 - 18:00" }
+                workingHours = workingHours.ifBlank { "09:00 - 18:00" },
+                legalAcceptance = mapOf(
+                    "preInformation" to mapOf(
+                        "documentId" to LegalDocuments.PRE_INFORMATION_ID,
+                        "version" to LegalDocumentVersions.PRE_INFORMATION,
+                        "status" to "read_acknowledged",
+                        "recordedAt" to FieldValue.serverTimestamp()
+                    ),
+                    "userAgreement" to mapOf(
+                        "documentId" to agreementDocumentId,
+                        "version" to LegalDocumentVersions.agreementFor(role),
+                        "status" to "accepted",
+                        "recordedAt" to FieldValue.serverTimestamp()
+                    )
+                )
             )
 
             val batch = firestore.batch()
@@ -256,7 +286,7 @@ class AuthRepository {
     fun getMerchantsFlow(): Flow<List<UserProfile>> = callbackFlow {
         val listenerRegistration = firestore.collection("public_merchants")
             .whereEqualTo("role", UserRole.MERCHANT.name)
-            .limit(200)
+            .limit(500)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     close(error)

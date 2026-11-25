@@ -82,10 +82,7 @@ class OrderRepository(
     suspend fun createOrder(
         itemId: String,
         customerId: String,
-        customerEmail: String,
         quantity: Int,
-        recipientName: String,
-        customerPhone: String,
         deliveryAddress: String,
         fulfillmentType: String,
         paymentMethod: String
@@ -94,8 +91,6 @@ class OrderRepository(
             require(itemId.isNotBlank()) { "Ürün bulunamadı." }
             require(customerId.isNotBlank()) { "Sipariş vermek için giriş yapmalısınız." }
             require(quantity > 0) { "Adet en az 1 olmalıdır." }
-            require(recipientName.isNotBlank()) { "Teslim alacak kişinin adını girin." }
-            require(customerPhone.isNotBlank()) { "Sipariş için telefon numarası girin." }
             require(fulfillmentType in setOf("delivery", "pickup")) { "Teslimat türü geçersiz." }
             require(paymentMethod in setOf("cash_on_delivery", "pay_at_store", "mock_card")) { "Ödeme yöntemi geçersiz." }
             require(fulfillmentType == "pickup" || deliveryAddress.isNotBlank()) { "Teslimat adresini girin." }
@@ -116,14 +111,11 @@ class OrderRepository(
                     id = orderRef.id,
                     itemId = item.id,
                     customerId = customerId,
-                    customerEmail = customerEmail,
                     merchantId = item.merchantId,
                     itemTitle = item.title,
                     price = item.price,
                     quantity = quantity,
                     status = "pending",
-                    recipientName = recipientName.trim(),
-                    customerPhone = customerPhone.trim(),
                     deliveryAddress = deliveryAddress.trim(),
                     fulfillmentType = fulfillmentType,
                     paymentMethod = paymentMethod,
@@ -132,7 +124,10 @@ class OrderRepository(
                     approvalDeadlineAt = createdAt + 30L * 60L * 1000L
                 )
 
-                transaction.update(itemRef, "stock", item.stock - quantity)
+                transaction.update(itemRef, mapOf(
+                    "stock" to item.stock - quantity,
+                    "stockReservationOrderId" to orderRef.id
+                ))
                 transaction.set(orderRef, order.toMap())
                 orderRef.id
             }.await()
@@ -162,13 +157,17 @@ class OrderRepository(
                         val itemRef = firestore.collection("items").document(order.itemId)
                         val itemSnapshot = transaction.get(itemRef)
                         val stock = (itemSnapshot.getLong("stock") ?: 0L).toInt()
-                        transaction.update(itemRef, "stock", stock + order.quantity)
+                        transaction.update(itemRef, mapOf(
+                            "stock" to stock + order.quantity,
+                            "stockReleaseOrderId" to order.id
+                        ))
                     }
                     val now = System.currentTimeMillis()
                     val updates = mutableMapOf<String, Any>(
                         "status" to "cancelled",
                         "cancelledAt" to now,
-                        "cancellationReason" to "merchant_cancelled"
+                        "cancellationReason" to "merchant_cancelled",
+                        "stockRestoredAt" to now
                     )
                     if (order.paymentStatus == "demo_paid") {
                         updates["paymentStatus"] = "demo_refunded"
@@ -203,17 +202,30 @@ class OrderRepository(
                 require(order.paymentStatus !in setOf("paid", "processing")) {
                     "Gerçek ödeme durumundaki siparişler destek üzerinden iptal edilmelidir."
                 }
+                require(order.itemId.isNotBlank() && order.quantity > 0) {
+                    "Sipariş stoğu doğrulanamadı; destek ekibiyle iletişime geçin."
+                }
+
+                val itemRef = firestore.collection("items").document(order.itemId)
+                val itemSnapshot = transaction.get(itemRef)
+                val stock = (itemSnapshot.getLong("stock")
+                    ?: error("Ürün stoğu bulunamadı; destek ekibiyle iletişime geçin.")).toInt()
 
                 val now = System.currentTimeMillis()
                 val updates = mutableMapOf<String, Any>(
                     "status" to "cancelled",
                     "cancelledAt" to now,
-                    "cancellationReason" to "customer_cancelled"
+                    "cancellationReason" to "customer_cancelled",
+                    "stockRestoredAt" to now
                 )
                 if (order.paymentStatus == "demo_paid") {
                     updates["paymentStatus"] = "demo_refunded"
                     updates["refundAt"] = now
                 }
+                transaction.update(itemRef, mapOf(
+                    "stock" to stock + order.quantity,
+                    "stockReleaseOrderId" to order.id
+                ))
                 transaction.update(orderRef, updates)
             }.await()
             Result.success(Unit)

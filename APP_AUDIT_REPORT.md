@@ -1,5 +1,9 @@
 # 📘 ESNAFIM ANDROID UYGULAMASI - TAM KAPSAMLI ANALİZ VE TEKNİK DOKÜMANTASYON (APP AUDIT REPORT)
 
+> **Güncel durum notu — 21 Kasım 2026:** Bu raporun ana gövdesi daha eski bir proje sürümünü anlatır; özellikle “sipariş/ödeme yok”, “favoriler yerel bellekte” ve “yalnızca randevu akışı var” ifadeleri artık geçerli değildir. Güncel kaynakta ürün siparişi ve stok ayırma, yalnızca demo olarak işaretlenen kart ödemesi, hizmet depozitosu, sipariş/randevu takibi ve iptali, esnaf-müşteri ekli dosya sohbeti, favoriler, Çırak asistanı ve `public_merchants` listesi bulunur. **PayTR veya gerçek para tahsilatı yoktur.**
+>
+> Bu geliştirme turunda sipariş stok güncellemesi sipariş kaydına bağlandı; müşteri/esnaf iptali stok iadesini aynı transaction içinde yapacak biçimde düzenlendi. Esnaf sipariş/randevu/sohbet ekranları tek alanlı Firestore sorgularını kullanır ve sonucu istemcide tarihe göre sıralar; sipariş ekranı için yeni bileşik indeks gerektirmez. Demo veri scriptlerindeki `.firebaserc` okuma sorunu giderildi ve Functions çalışma zamanı Node.js 22'ye alındı. Firebase'deki 55 örnek işletmeye uygun eksik kataloglar eklendi: 106 ürün ve 52 hizmet. Gerçek esnaf kayıtlarına ve mevcut katalog belgelerine dokunulmadı. Firestore kuralları, dizinler veya Functions canlı projeye dağıtılmadı. Cloud Functions'ın çalışması için Firebase plan/faturalandırma koşulları ayrıca karşılanmalıdır.
+
 ---
 
 ## 1. YÖNETİCİ ÖZETİ

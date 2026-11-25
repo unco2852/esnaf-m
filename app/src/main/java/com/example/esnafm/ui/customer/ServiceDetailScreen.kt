@@ -62,6 +62,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.esnafm.ui.components.PaymentCardFields
+import com.example.esnafm.ui.components.isPaymentCardComplete
 import coil.compose.AsyncImage
 import com.example.esnafm.data.model.AppointmentModel
 import com.example.esnafm.data.model.ServiceModel
@@ -434,10 +436,8 @@ fun ServiceDetailScreen(
                 ServiceDetailBookingDialog(
                     service = serviceModel!!,
                     onDismiss = { isBookingDialogOpen = false },
-                    initialName = FirebaseAuth.getInstance().currentUser?.displayName.orEmpty(),
-                    initialPhone = FirebaseAuth.getInstance().currentUser?.phoneNumber.orEmpty(),
                     errorMessage = errorMessage,
-                    onConfirm = { date, time, note, recipientName, phone, serviceLocation, serviceAddress ->
+                    onConfirm = { date, time, note, serviceLocation, serviceAddress ->
                         val currentUser = FirebaseAuth.getInstance().currentUser
                         if (currentUser == null) {
                             errorMessage = "Randevu alabilmek için lütfen giriş yapınız."
@@ -448,7 +448,6 @@ fun ServiceDetailScreen(
                         coroutineScope.launch {
                             val newAppointment = AppointmentModel(
                                 customerId = currentUser.uid,
-                                customerEmail = currentUser.email ?: "",
                                 merchantId = serviceModel!!.merchantId,
                                 serviceId = serviceModel!!.id,
                                 serviceTitle = serviceModel!!.title,
@@ -457,8 +456,6 @@ fun ServiceDetailScreen(
                                 time = time,
                                 note = note?.takeIf { it.isNotBlank() },
                                 status = "pending",
-                                recipientName = recipientName,
-                                customerPhone = phone,
                                 serviceLocation = serviceLocation,
                                 serviceAddress = if (serviceLocation == "at_customer") serviceAddress else "",
                                 depositAmount = serviceModel!!.depositAmount,
@@ -472,7 +469,7 @@ fun ServiceDetailScreen(
                                 onSuccess = {
                                     isBookingDialogOpen = false
                                     bookingSuccessMessage = if (serviceModel!!.depositAmount > 0.0) {
-                                        "✅ Demo depozito kaydedildi; randevu talebiniz esnaf onayına iletildi. Gerçek tahsilat yapılmadı."
+                                        "✅ Depozito ödeme kaydınız oluşturuldu; randevu talebiniz esnaf onayına iletildi."
                                     } else {
                                         "✅ Randevu talebiniz esnaf onayına iletildi."
                                     }
@@ -492,11 +489,9 @@ fun ServiceDetailScreen(
 @Composable
 private fun ServiceDetailBookingDialog(
     service: ServiceModel,
-    initialName: String,
-    initialPhone: String,
     errorMessage: String?,
     onDismiss: () -> Unit,
-    onConfirm: (date: String, time: String, note: String?, recipientName: String, phone: String, serviceLocation: String, serviceAddress: String) -> Unit,
+    onConfirm: (date: String, time: String, note: String?, serviceLocation: String, serviceAddress: String) -> Unit,
     isSaving: Boolean
 ) {
     val dateOptions = remember {
@@ -549,11 +544,13 @@ private fun ServiceDetailBookingDialog(
         mutableStateOf(availableTimeSlots.firstOrNull() ?: "")
     }
     var note by remember { mutableStateOf("") }
-    var recipientName by remember { mutableStateOf(initialName) }
-    var phone by remember { mutableStateOf(initialPhone) }
     var serviceLocation by remember { mutableStateOf("at_business") }
     var serviceAddress by remember { mutableStateOf("") }
     var currentStep by remember { mutableIntStateOf(0) }
+    var cardHolder by remember { mutableStateOf("") }
+    var cardNumber by remember { mutableStateOf("") }
+    var cardExpiry by remember { mutableStateOf("") }
+    var cardCvv by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -587,7 +584,7 @@ private fun ServiceDetailBookingDialog(
                         )
                         Text("Depozito: ${service.depositAmount} TL · kalan: ${(service.price - service.depositAmount).coerceAtLeast(0.0)} TL", style = MaterialTheme.typography.bodySmall)
                         Text(
-                            if (service.depositAmount > 0.0) "Depozito onay isteğinden önce demo olarak işlenir."
+                            if (service.depositAmount > 0.0) "Depozito randevu talebi sırasında ödenir."
                             else "Bu hizmet için depozito yok.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -659,19 +656,14 @@ private fun ServiceDetailBookingDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
-                OutlinedTextField(
-                    value = recipientName,
-                    onValueChange = { recipientName = it.take(60) },
-                    label = { Text("Ad soyad") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { phone = it.take(20) },
-                    label = { Text("Telefon") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                Text(
+                    if (serviceLocation == "at_customer") {
+                        "Ad, telefon ve e-posta paylaşılmaz. Hizmet adresi randevu için işletmeye iletilir; iletişim uygulama içi mesajlaşmadan yürütülür."
+                    } else {
+                        "Ad, telefon ve e-posta paylaşılmaz. İletişim uygulama içi mesajlaşmadan yürütülür."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 OutlinedTextField(
@@ -693,16 +685,26 @@ private fun ServiceDetailBookingDialog(
                         ) {
                             Text(service.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
                             Text("Randevu: $selectedDate · $selectedTime")
-                            Text("Müşteri: $recipientName · $phone", style = MaterialTheme.typography.bodySmall)
                             Text(
                                 if (serviceLocation == "at_business") "Hizmet yeri: İşletmede" else "Hizmet adresi: $serviceAddress",
                                 style = MaterialTheme.typography.bodySmall
                             )
                             if (note.isNotBlank()) Text("Not: $note", style = MaterialTheme.typography.bodySmall)
-                            Text("Şimdi ödenecek demo depozito: ${service.depositAmount} TL", fontWeight = FontWeight.Bold)
+                            Text("Depozito tutarı: ${service.depositAmount} TL", fontWeight = FontWeight.Bold)
                             Text("Hizmet sonrası kalan: ${(service.price - service.depositAmount).coerceAtLeast(0.0)} TL", style = MaterialTheme.typography.bodySmall)
-                            Text("Bu bir demo işlemidir; gerçek para çekilmez. Depozito demo olarak işaretlendikten sonra randevu esnaf onayına gönderilir.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                    }
+                    if (service.depositAmount > 0.0) {
+                        PaymentCardFields(
+                            cardHolder = cardHolder,
+                            cardNumber = cardNumber,
+                            cardExpiry = cardExpiry,
+                            cardCvv = cardCvv,
+                            onCardHolderChange = { cardHolder = it },
+                            onCardNumberChange = { cardNumber = it },
+                            onCardExpiryChange = { cardExpiry = it },
+                            onCardCvvChange = { cardCvv = it }
+                        )
                     }
                 }
                 if (errorMessage != null) Text(errorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -711,17 +713,17 @@ private fun ServiceDetailBookingDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (selectedTime.isNotBlank() && recipientName.isNotBlank() && phone.isNotBlank() &&
-                        (serviceLocation == "at_business" || serviceAddress.isNotBlank())) {
+                    if (selectedTime.isNotBlank() && (serviceLocation == "at_business" || serviceAddress.isNotBlank())) {
                         if (currentStep == 0 && service.depositAmount > 0.0) {
                             currentStep = 1
                         } else {
-                            onConfirm(selectedDate, selectedTime, note, recipientName.trim(), phone.trim(), serviceLocation, serviceAddress.trim())
+                            onConfirm(selectedDate, selectedTime, note, serviceLocation, serviceAddress.trim())
                         }
                     }
                 },
-                enabled = !isSaving && selectedTime.isNotBlank() && recipientName.isNotBlank() && phone.isNotBlank() &&
-                    (serviceLocation == "at_business" || serviceAddress.isNotBlank())
+                enabled = !isSaving && selectedTime.isNotBlank() &&
+                    (serviceLocation == "at_business" || serviceAddress.isNotBlank()) &&
+                    (currentStep == 0 || isPaymentCardComplete(cardHolder, cardNumber, cardExpiry, cardCvv))
             ) {
                 if (isSaving) {
                     CircularProgressIndicator(
@@ -732,7 +734,7 @@ private fun ServiceDetailBookingDialog(
                 } else {
                     Text(
                         when {
-                            currentStep == 1 -> "Demo depozitoyu öde ve onay iste"
+                            currentStep == 1 -> "Depozitoyu öde ve onay iste"
                             service.depositAmount > 0.0 -> "Depozito ödemesine geç"
                             else -> stringResource(R.string.send_request)
                         }

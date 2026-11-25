@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -45,13 +44,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.esnafm.data.model.AddressModel
 import com.example.esnafm.data.model.ItemModel
+import com.example.esnafm.ui.components.PaymentCardFields
+import com.example.esnafm.ui.components.isPaymentCardComplete
 
 @Composable
 fun ProductCheckoutDialog(
@@ -61,13 +60,9 @@ fun ProductCheckoutDialog(
     initialAddress: String,
     isSubmitting: Boolean,
     errorMessage: String?,
-    initialName: String,
-    initialPhone: String,
     onDismiss: () -> Unit,
-    onConfirm: (recipientName: String, phone: String, address: String, fulfillmentType: String, paymentMethod: String) -> Unit
+    onConfirm: (address: String, fulfillmentType: String, paymentMethod: String) -> Unit
 ) {
-    var recipientName by remember(item.id) { mutableStateOf(initialName) }
-    var phone by remember(item.id) { mutableStateOf(initialPhone) }
     var address by remember(item.id) {
         mutableStateOf(initialAddress.ifBlank { savedAddresses.firstOrNull { it.isDefault }?.fullAddress ?: savedAddresses.firstOrNull()?.fullAddress.orEmpty() })
     }
@@ -78,24 +73,13 @@ fun ProductCheckoutDialog(
     var cardNumber by remember { mutableStateOf("") }
     var cardExpiry by remember { mutableStateOf("") }
     var cardCvv by remember { mutableStateOf("") }
-    LaunchedEffect(initialName) {
-        if (recipientName.isBlank() && initialName.isNotBlank()) recipientName = initialName
-    }
-    LaunchedEffect(initialPhone) {
-        if (phone.isBlank() && initialPhone.isNotBlank()) phone = initialPhone
-    }
     LaunchedEffect(initialAddress) {
         if (address.isBlank() && initialAddress.isNotBlank()) address = initialAddress
     }
     val total = item.price * quantity
-    val cardDigits = cardNumber.filter(Char::isDigit)
-    val expiryDigits = cardExpiry.filter(Char::isDigit)
-    val expiryMonth = expiryDigits.take(2).toIntOrNull() ?: 0
-    val isDemoCardComplete = cardHolder.isNotBlank() && cardDigits.length == 16 &&
-        expiryDigits.length == 4 && expiryMonth in 1..12 && cardCvv.filter(Char::isDigit).length in 3..4
-    val canContinueToPayment = !isSubmitting && recipientName.isNotBlank() && phone.isNotBlank() &&
-        (fulfillmentType == "pickup" || address.isNotBlank())
-    val canSubmit = canContinueToPayment && (paymentMethod != "mock_card" || isDemoCardComplete)
+    val isCardComplete = isPaymentCardComplete(cardHolder, cardNumber, cardExpiry, cardCvv)
+    val canContinueToPayment = !isSubmitting && (fulfillmentType == "pickup" || address.isNotBlank())
+    val canSubmit = canContinueToPayment && (paymentMethod != "mock_card" || isCardComplete)
 
     Dialog(onDismissRequest = { if (!isSubmitting) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
@@ -112,7 +96,7 @@ fun ProductCheckoutDialog(
                     Column(Modifier.weight(1f)) {
                         Text(if (currentStep == 0) "Teslimat bilgileri" else "Ödeme", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold))
                         Text(
-                            if (currentStep == 0) "Sipariş bilgilerinizi kontrol edin" else "Ödeme yöntemini seçip demo işlemi tamamlayın",
+                            if (currentStep == 0) "Sipariş bilgilerinizi kontrol edin" else "Ödeme yöntemini seçip işlemi tamamlayın",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -150,10 +134,9 @@ fun ProductCheckoutDialog(
                                     Text("Teslimat bilgileri", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
                                     TextButton(onClick = { currentStep = 0 }, enabled = !isSubmitting) { Text("Düzenle") }
                                 }
-                                Text(recipientName)
-                                Text(phone, style = MaterialTheme.typography.bodySmall)
                                 if (fulfillmentType == "delivery") Text(address, style = MaterialTheme.typography.bodySmall)
                                 else Text("İşletmeden teslim al", style = MaterialTheme.typography.bodySmall)
+                                Text("İletişim uygulama içi mesajlaşmadan yapılır.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -179,22 +162,6 @@ fun ProductCheckoutDialog(
                             label = { Text("İşletmeden al") }
                         )
                     }
-
-                    Text("Teslim alacak kişi", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
-                    OutlinedTextField(
-                        value = recipientName,
-                        onValueChange = { recipientName = it.take(60) },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Ad soyad") },
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = phone,
-                        onValueChange = { phone = it.take(20) },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Telefon") },
-                        singleLine = true
-                    )
 
                     if (fulfillmentType == "delivery") {
                         Text("Teslimat adresi", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
@@ -225,75 +192,22 @@ fun ProductCheckoutDialog(
                     Text("Ödeme yöntemi", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
                     CheckoutPaymentChoice(
                         selected = paymentMethod == "mock_card",
-                        title = "Kartla ödeme · demo",
-                        description = "Test kartı alanı · gerçek tahsilat yapılmaz",
+                        title = "Kartla ödeme",
+                        description = "Kart bilgileri sipariş kaydına eklenmez",
                         onClick = { paymentMethod = "mock_card" },
                         icon = { Icon(Icons.Default.CreditCard, contentDescription = null) }
                     )
                     if (paymentMethod == "mock_card") {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                            shape = RoundedCornerShape(16.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth().padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.CreditCard, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                    Text(
-                                        "Demo kart bilgileri",
-                                        modifier = Modifier.padding(start = 8.dp),
-                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                                    )
-                                }
-                                Text(
-                                    "Yalnızca test verisi girin. Gerçek kart kullanmayın; bu bilgiler kaydedilmez veya gönderilmez.",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                OutlinedTextField(
-                                    value = cardHolder,
-                                    onValueChange = { cardHolder = it.take(80) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    label = { Text("Kart üzerindeki ad · test") },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
-                                )
-                                OutlinedTextField(
-                                    value = cardNumber,
-                                    onValueChange = { input ->
-                                        cardNumber = input.filter(Char::isDigit).take(16).chunked(4).joinToString(" ")
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    label = { Text("Kart numarası · test") },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                                )
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    OutlinedTextField(
-                                        value = cardExpiry,
-                                        onValueChange = { input ->
-                                            val digits = input.filter(Char::isDigit).take(4)
-                                            cardExpiry = if (digits.length > 2) "${digits.take(2)}/${digits.drop(2)}" else digits
-                                        },
-                                        modifier = Modifier.weight(1f),
-                                        label = { Text("SKT · AA/YY") },
-                                        singleLine = true,
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                                    )
-                                    OutlinedTextField(
-                                        value = cardCvv,
-                                        onValueChange = { cardCvv = it.filter(Char::isDigit).take(4) },
-                                        modifier = Modifier.weight(1f),
-                                        label = { Text("CVV · test") },
-                                        singleLine = true,
-                                        visualTransformation = PasswordVisualTransformation(),
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)
-                                    )
-                                }
-                            }
-                        }
+                        PaymentCardFields(
+                            cardHolder = cardHolder,
+                            cardNumber = cardNumber,
+                            cardExpiry = cardExpiry,
+                            cardCvv = cardCvv,
+                            onCardHolderChange = { cardHolder = it },
+                            onCardNumberChange = { cardNumber = it },
+                            onCardExpiryChange = { cardExpiry = it },
+                            onCardCvvChange = { cardCvv = it }
+                        )
                     }
                     CheckoutPaymentChoice(
                         selected = paymentMethod == "cash_on_delivery" && fulfillmentType == "delivery",
@@ -317,11 +231,14 @@ fun ProductCheckoutDialog(
                                 Text("Ürün toplamı")
                                 Text("%.2f TL".format(total), fontWeight = FontWeight.SemiBold)
                             }
-                            Text("Demo kart işlemi gerçek tahsilat değildir. Sipariş 30 dakika içinde onaylanmazsa iptal edilir ve demo ödeme durumu iade edildi olarak işaretlenir.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Sipariş 30 dakika içinde onaylanmazsa iptal edilir ve iade kaydı oluşturulur.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     }
                     if (errorMessage != null) Text(errorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    if (currentStep == 0) {
+                        Text("Ad, telefon ve e-posta işletmeyle paylaşılmaz. Adrese teslimat için seçtiğin adres işletmeye iletilir. İletişim uygulama içi mesajlaşmadan yapılır.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     Spacer(Modifier.height(8.dp))
                 }
 
@@ -338,19 +255,13 @@ fun ProductCheckoutDialog(
                             Button(
                                 onClick = {
                                     val selectedPaymentMethod = paymentMethod
-                                    if (selectedPaymentMethod == "mock_card") {
-                                        cardHolder = ""
-                                        cardNumber = ""
-                                        cardExpiry = ""
-                                        cardCvv = ""
-                                    }
-                                    onConfirm(recipientName.trim(), phone.trim(), address.trim(), fulfillmentType, selectedPaymentMethod)
+                                    onConfirm(address.trim(), fulfillmentType, selectedPaymentMethod)
                                 },
                                 modifier = Modifier.weight(1f),
                                 enabled = canSubmit
                             ) {
                                 if (isSubmitting) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp), strokeWidth = 2.dp)
-                                Text(if (paymentMethod == "mock_card") "Demo ödemeyi tamamla · %.2f TL".format(total) else "Siparişi oluştur · %.2f TL".format(total))
+                                Text(if (paymentMethod == "mock_card") "Ödemeyi tamamla · %.2f TL".format(total) else "Siparişi oluştur · %.2f TL".format(total))
                             }
                         }
                     }

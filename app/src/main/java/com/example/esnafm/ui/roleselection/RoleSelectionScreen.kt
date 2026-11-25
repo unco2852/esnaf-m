@@ -2,6 +2,7 @@ package com.example.esnafm.ui.roleselection
 
 import com.example.esnafm.R
 import androidx.compose.ui.res.stringResource
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +28,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +40,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.esnafm.ui.components.EsnafımLogo
+import com.example.esnafm.ui.components.ConfirmAppExitDialog
 import com.example.esnafm.ui.theme.DarkInk
 import com.example.esnafm.ui.theme.LightBeige
 import com.example.esnafm.ui.theme.SkyBlue
@@ -48,6 +54,12 @@ fun RoleSelectionScreen(
     onNavigateToCustomer: () -> Unit,
     onNavigateToTradesman: () -> Unit
 ) {
+    var isExitConfirmationOpen by remember { mutableStateOf(false) }
+
+    BackHandler {
+        isExitConfirmationOpen = true
+    }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = WarmCream
@@ -98,6 +110,11 @@ fun RoleSelectionScreen(
             )
         }
     }
+
+    ConfirmAppExitDialog(
+        visible = isExitConfirmationOpen,
+        onDismiss = { isExitConfirmationOpen = false }
+    )
 }
 
 @Composable

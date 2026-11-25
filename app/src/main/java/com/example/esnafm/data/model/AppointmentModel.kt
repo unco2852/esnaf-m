@@ -7,7 +7,6 @@ package com.example.esnafm.data.model
 data class AppointmentModel(
     val id: String = "",
     val customerId: String = "",
-    val customerEmail: String = "",
     val merchantId: String = "",
     val serviceId: String = "",
     val serviceTitle: String = "",
@@ -19,8 +18,6 @@ data class AppointmentModel(
     val note: String? = null,
     val status: String = "pending",
     val createdAt: Long = System.currentTimeMillis(),
-    val recipientName: String = "",
-    val customerPhone: String = "",
     val serviceLocation: String = "at_business",
     val serviceAddress: String = "",
     val depositPaymentStatus: String = "not_required",
@@ -34,7 +31,6 @@ data class AppointmentModel(
     fun toMap(): Map<String, Any?> {
         return mapOf(
             "customerId" to customerId,
-            "customerEmail" to customerEmail,
             "merchantId" to merchantId,
             "serviceId" to serviceId,
             "serviceTitle" to serviceTitle,
@@ -46,8 +42,6 @@ data class AppointmentModel(
             "note" to note,
             "status" to status,
             "createdAt" to createdAt,
-            "recipientName" to recipientName,
-            "customerPhone" to customerPhone,
             "serviceLocation" to serviceLocation,
             "serviceAddress" to serviceAddress,
             "depositPaymentStatus" to depositPaymentStatus,
@@ -65,7 +59,6 @@ data class AppointmentModel(
             return AppointmentModel(
                 id = id,
                 customerId = map["customerId"] as? String ?: "",
-                customerEmail = map["customerEmail"] as? String ?: "",
                 merchantId = map["merchantId"] as? String ?: "",
                 serviceId = map["serviceId"] as? String ?: "",
                 serviceTitle = map["serviceTitle"] as? String ?: "",
@@ -77,8 +70,6 @@ data class AppointmentModel(
                 note = map["note"] as? String,
                 status = map["status"] as? String ?: "pending",
                 createdAt = (map["createdAt"] as? Number)?.toLong() ?: System.currentTimeMillis(),
-                recipientName = map["recipientName"] as? String ?: "",
-                customerPhone = map["customerPhone"] as? String ?: "",
                 serviceLocation = map["serviceLocation"] as? String ?: "at_business",
                 serviceAddress = map["serviceAddress"] as? String ?: "",
                 depositPaymentStatus = map["depositPaymentStatus"] as? String

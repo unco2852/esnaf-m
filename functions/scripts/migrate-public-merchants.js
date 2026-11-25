@@ -1,13 +1,25 @@
 const admin = require("firebase-admin");
-const firebaseConfig = require("../../.firebaserc");
+const fs = require("node:fs");
+const path = require("node:path");
+const firebaseConfig = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "../../.firebaserc"), "utf8")
+);
 
 const projectId = process.env.GCLOUD_PROJECT
   || process.env.GOOGLE_CLOUD_PROJECT
   || firebaseConfig.projects?.default;
+if (!projectId) throw new Error("Firebase proje kimliği bulunamadı. GCLOUD_PROJECT ayarlayın veya .firebaserc dosyasını kontrol edin.");
 admin.initializeApp({ projectId });
 
 const db = admin.firestore();
 const PAGE_SIZE = 400;
+const originalSampleMerchantIds = new Set([
+  "merchant_dogan_tesisat",
+  "merchant_bastug_yapi",
+  "merchant_nas_terzi",
+  "merchant_yokyok_anahtar",
+  "merchant_engin_kuafor"
+]);
 
 function isMerchant(data) {
   const role = String(data.role || data.userType || data.accountType || "").trim().toUpperCase();
@@ -15,7 +27,7 @@ function isMerchant(data) {
 }
 
 function publicFields(uid, data) {
-  return {
+  const fields = {
     uid,
     role: "MERCHANT",
     businessName: String(data.businessName || data.name || "İşletme").slice(0, 120),
@@ -31,11 +43,24 @@ function publicFields(uid, data) {
     district: String(data.district || "").slice(0, 100),
     isOpen: typeof data.isBusinessOpen === "boolean" ? data.isBusinessOpen : true
   };
+  if (data.isDemo === true || originalSampleMerchantIds.has(uid)) fields.isDemo = true;
+  return fields;
+}
+
+async function createPublicMerchantIfMissing(uid, data) {
+  const publicRef = db.collection("public_merchants").doc(uid);
+  return db.runTransaction(async (transaction) => {
+    const current = await transaction.get(publicRef);
+    if (current.exists) return false;
+    transaction.create(publicRef, publicFields(uid, data));
+    return true;
+  });
 }
 
 async function main() {
   let cursor = null;
   let migrated = 0;
+  let keptExisting = 0;
 
   while (true) {
     let query = db.collection("users")
@@ -46,26 +71,18 @@ async function main() {
     const page = await query.get();
     if (page.empty) break;
 
-    const batch = db.batch();
-    let pageMigrations = 0;
     for (const userDocument of page.docs) {
       const data = userDocument.data();
       if (!isMerchant(data)) continue;
-      const currentRole = String(data.role || "").trim().toUpperCase();
-      if (currentRole !== "MERCHANT") batch.update(userDocument.ref, { role: "MERCHANT" });
-      batch.set(
-        db.collection("public_merchants").doc(userDocument.id),
-        publicFields(userDocument.id, data)
-      );
-      migrated += 1;
-      pageMigrations += 1;
+      const created = await createPublicMerchantIfMissing(userDocument.id, data);
+      if (created) migrated += 1;
+      else keptExisting += 1;
     }
-    if (pageMigrations > 0) await batch.commit();
     cursor = page.docs[page.docs.length - 1];
     if (page.size < PAGE_SIZE) break;
   }
 
-  console.log(`Migrated ${migrated} public merchant profiles.`);
+  console.log(`Added ${migrated} missing public merchant profiles; preserved ${keptExisting} existing profiles and all private user documents.`);
 }
 
 main().catch((error) => {

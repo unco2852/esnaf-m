@@ -3,10 +3,13 @@
   "private": true,
   "main": "index.js",
   "scripts": {
-    "migrate:public-merchants": "node scripts/migrate-public-merchants.js"
+    "migrate:public-merchants": "node scripts/migrate-public-merchants.js",
+    "seed:demo-merchants": "node scripts/seed-demo-merchants.js",
+    "update:demo-merchant-locations": "node scripts/update-demo-merchant-locations.js",
+    "seed:demo-catalog": "node scripts/seed-demo-catalog.js"
   },
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "dependencies": {
     "firebase-admin": "^13.0.0",

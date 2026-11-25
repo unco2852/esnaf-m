@@ -15,6 +15,8 @@ import kotlinx.coroutines.withContext
 
 data class AuthUiState(
     val isLoginMode: Boolean = true,
+    val hasReadPreInformation: Boolean = false,
+    val hasAcceptedUserAgreement: Boolean = false,
     val email: String = "",
     val password: String = "",
     val passwordConfirmation: String = "",
@@ -48,6 +50,8 @@ class AuthViewModel(
         _uiState.update {
             it.copy(
                 role = role,
+                hasReadPreInformation = false,
+                hasAcceptedUserAgreement = false,
                 email = "",
                 password = "",
                 passwordConfirmation = "",
@@ -73,9 +77,19 @@ class AuthViewModel(
         _uiState.update {
             it.copy(
                 isLoginMode = !it.isLoginMode,
+                hasReadPreInformation = false,
+                hasAcceptedUserAgreement = false,
                 errorMessage = null
             )
         }
+    }
+
+    fun onPreInformationReadChanged(checked: Boolean) {
+        _uiState.update { it.copy(hasReadPreInformation = checked, errorMessage = null) }
+    }
+
+    fun onUserAgreementAcceptedChanged(checked: Boolean) {
+        _uiState.update { it.copy(hasAcceptedUserAgreement = checked, errorMessage = null) }
     }
 
     fun onEmailChanged(email: String) {
@@ -134,6 +148,16 @@ class AuthViewModel(
         val state = _uiState.value
         if (state.email.isBlank() || state.password.isBlank()) {
             _uiState.update { it.copy(errorMessage = "Lütfen e-posta ve şifrenizi giriniz.") }
+            return
+        }
+
+        if (!state.isLoginMode && !state.hasReadPreInformation) {
+            _uiState.update { it.copy(errorMessage = "Devam etmek için ön bilgilendirme metnini okuduğunuzu onaylayın.") }
+            return
+        }
+
+        if (!state.isLoginMode && !state.hasAcceptedUserAgreement) {
+            _uiState.update { it.copy(errorMessage = "Kayıt olmak için kullanıcı sözleşmesini kabul etmeniz gerekiyor.") }
             return
         }
 
@@ -200,6 +224,8 @@ class AuthViewModel(
                     pass = state.password,
                     name = state.name.ifBlank { "Kullanıcı" },
                     role = state.role,
+                    preInformationAcknowledged = state.hasReadPreInformation,
+                    userAgreementAccepted = state.hasAcceptedUserAgreement,
                     businessName = state.businessName.trim(),
                     category = state.category.trim(),
                     address = state.address.trim(),

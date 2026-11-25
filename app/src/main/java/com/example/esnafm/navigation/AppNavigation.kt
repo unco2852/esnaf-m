@@ -102,6 +102,9 @@ fun AppNavigation(
                         }
                     }
                 },
+                onNavigateToPrivacyPolicy = {
+                    navController.navigate(ScreenRoutes.PRIVACY_POLICY)
+                },
                 onAuthSuccess = { profile ->
                     val destination = if (profile.role == UserRole.MERCHANT) {
                         ScreenRoutes.TRADESMAN_PANEL

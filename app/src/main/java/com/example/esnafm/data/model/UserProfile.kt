@@ -71,7 +71,9 @@ data class UserProfile(
     val businessLogoUrl: String = "",
     val businessLatitude: Double? = null,
     val businessLongitude: Double? = null,
-    val isBusinessOpen: Boolean = true
+    val isBusinessOpen: Boolean = true,
+    val isDemoMerchant: Boolean = false,
+    val legalAcceptance: Map<String, Any?> = emptyMap()
 ) {
     fun toMap(): Map<String, Any?> {
         return mapOf(
@@ -104,27 +106,29 @@ data class UserProfile(
             "businessLogoUrl" to businessLogoUrl,
             "businessLatitude" to businessLatitude,
             "businessLongitude" to businessLongitude,
-            "isBusinessOpen" to isBusinessOpen
+            "isBusinessOpen" to isBusinessOpen,
+            "legalAcceptance" to legalAcceptance
         )
     }
 
     /** Deliberately limited public listing; never includes personal contact or account fields. */
-    fun toPublicMerchantMap(): Map<String, Any?> = mapOf(
-        "uid" to uid,
-        "role" to UserRole.MERCHANT.name,
-        "businessName" to businessName.ifBlank { name },
-        "category" to category,
-        "businessDescription" to businessDescription,
-        "businessPhone" to businessPhone,
-        "businessAddress" to businessAddress.ifBlank { address },
-        "workingHours" to workingHours,
-        "businessLogoUrl" to businessLogoUrl,
-        "businessLatitude" to businessLatitude,
-        "businessLongitude" to businessLongitude,
-        "city" to city,
-        "district" to district,
-        "isOpen" to isBusinessOpen
-    )
+    fun toPublicMerchantMap(): Map<String, Any?> = buildMap<String, Any?> {
+        put("uid", uid)
+        put("role", UserRole.MERCHANT.name)
+        put("businessName", businessName.ifBlank { name })
+        put("category", category)
+        put("businessDescription", businessDescription)
+        put("businessPhone", businessPhone)
+        put("businessAddress", businessAddress.ifBlank { address })
+        put("workingHours", workingHours)
+        put("businessLogoUrl", businessLogoUrl)
+        put("businessLatitude", businessLatitude)
+        put("businessLongitude", businessLongitude)
+        put("city", city)
+        put("district", district)
+        put("isOpen", isBusinessOpen)
+        if (isDemoMerchant) put("isDemo", true)
+    }
 
     companion object {
         fun fromMap(map: Map<String, Any?>): UserProfile {
@@ -169,7 +173,12 @@ data class UserProfile(
                 businessLongitude = (map["businessLongitude"] as? Number)?.toDouble(),
                 isBusinessOpen = map["isBusinessOpen"] as? Boolean
                     ?: map["isOpen"] as? Boolean
-                    ?: true
+                    ?: true,
+                isDemoMerchant = map["isDemo"] as? Boolean ?: false,
+                legalAcceptance = (map["legalAcceptance"] as? Map<*, *>)
+                    ?.entries
+                    ?.associate { (key, value) -> key.toString() to value }
+                    ?: emptyMap()
             )
         }
 

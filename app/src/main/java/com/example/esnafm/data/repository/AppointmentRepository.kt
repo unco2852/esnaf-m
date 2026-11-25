@@ -4,6 +4,9 @@ import com.example.esnafm.data.model.AppointmentModel
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.DocumentReference
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -90,6 +93,16 @@ class AppointmentRepository(
             require(appointment.date.matches(Regex("^\\d{4}-\\d{2}-\\d{2}$"))) { "Randevu tarihi geçersiz." }
             require(appointment.time.matches(Regex("^\\d{2}:\\d{2}$"))) { "Randevu saati geçersiz." }
             require(appointment.merchantId.isNotBlank() && appointment.customerId.isNotBlank()) { "Randevu bilgileri eksik." }
+            require(appointment.customerId == FirebaseAuth.getInstance().currentUser?.uid) {
+                "Randevu oluşturmak için kendi hesabınızla giriş yapmalısınız."
+            }
+            require(appointment.serviceId.isNotBlank()) { "Hizmet seçimi bulunamadı." }
+            require(appointment.price >= 0.0 && appointment.depositAmount in 0.0..(appointment.price * 0.5)) {
+                "Hizmet fiyatı veya depozito tutarı geçersiz."
+            }
+            require(isFutureAppointment(appointment.date, appointment.time)) {
+                "Geçmiş bir tarih veya saat için randevu oluşturulamaz."
+            }
             val docRef = appointmentsCollection.document()
             val newAppointment = appointment.copy(id = docRef.id)
             val dateKey = appointment.date.filter(Char::isDigit)
@@ -146,7 +159,7 @@ class AppointmentRepository(
         }
     }
 
-    /** Müşteri başlamamış randevusunu iptal eder; yatırılmış demo depozito demo iadesi olarak işaretlenir. */
+    /** Müşteri başlamamış randevusunu iptal eder; yatırılmış depozito için iade kaydı oluşturulur. */
     suspend fun cancelCustomerAppointment(appointmentId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val uid = FirebaseAuth.getInstance().currentUser?.uid
@@ -192,7 +205,7 @@ class AppointmentRepository(
                 val data = snapshot.data ?: error("Randevu bulunamadı.")
                 val appointment = AppointmentModel.fromMap(snapshot.id, data)
                 require(appointment.customerId == uid) { "Bu randevu size ait değil." }
-                require(appointment.status == "approved") { "Depozito yalnızca esnaf onayından sonra demo olarak ödenebilir." }
+                require(appointment.status == "approved") { "Depozito yalnızca esnaf onayından sonra ödenebilir." }
                 require(appointment.depositAmount > 0.0 && appointment.depositPaymentStatus == "unpaid") {
                     "Ödenecek depozito bulunmuyor veya daha önce işlendi."
                 }
@@ -245,7 +258,7 @@ class AppointmentRepository(
                 require(appointment.merchantId == uid) { "Bu randevuyu güncelleme yetkiniz yok." }
                 require(appointment.status == "approved") { "Yalnızca onaylanmış hizmet tamamlanabilir." }
                 require(appointment.depositPaymentStatus in setOf("not_required", "demo_paid", "cash_paid")) {
-                    "Hizmet tamamlanmadan önce depozito demo olarak işlenmelidir."
+                    "Hizmet tamamlanmadan önce depozito işlenmelidir."
                 }
                 val remaining = (appointment.price - appointment.depositAmount).coerceAtLeast(0.0)
                 require(remaining > 0.0) { "Talep edilecek kalan tutar yok." }
@@ -274,7 +287,7 @@ class AppointmentRepository(
                     "Bu randevu artık tamamlanamaz."
                 }
                 require(appointment.depositPaymentStatus in setOf("not_required", "demo_paid", "cash_paid")) {
-                    "Hizmet tamamlanmadan önce depozito demo olarak işlenmelidir."
+                    "Hizmet tamamlanmadan önce depozito işlenmelidir."
                 }
                 val slotRef = slotReference(data)
                 val slotSnapshot = slotRef?.let(tx::get)
@@ -298,6 +311,24 @@ class AppointmentRepository(
             .document(dateKey)
             .collection("times")
             .document(timeKey)
+
+    private fun isFutureAppointment(date: String, time: String): Boolean {
+        val parsedDate = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+            isLenient = false
+        }.parse(date) ?: return false
+        val parsedTime = SimpleDateFormat("HH:mm", Locale.ROOT).apply {
+            isLenient = false
+        }.parse(time) ?: return false
+        val timeParts = Calendar.getInstance().apply { this.time = parsedTime }
+        val selected = Calendar.getInstance().apply {
+            this.time = parsedDate
+            set(Calendar.HOUR_OF_DAY, timeParts.get(Calendar.HOUR_OF_DAY))
+            set(Calendar.MINUTE, timeParts.get(Calendar.MINUTE))
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        return selected.after(Calendar.getInstance())
+    }
 
     private fun slotReference(appointmentData: Map<String, Any?>): DocumentReference? {
         val merchantId = appointmentData["merchantId"] as? String ?: return null

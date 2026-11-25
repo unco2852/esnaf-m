@@ -3,6 +3,18 @@ package com.example.esnafm.ui.tradesman
 import com.example.esnafm.R
 import androidx.compose.ui.res.stringResource
 import android.net.Uri
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -99,6 +111,8 @@ import com.example.esnafm.data.model.ItemModel
 import com.example.esnafm.data.model.MerchantMessageModel
 import com.example.esnafm.data.model.OrderModel
 import com.example.esnafm.data.model.ServiceModel
+import com.example.esnafm.ui.components.ConfirmActionDialog
+import com.example.esnafm.ui.components.ConfirmAppExitDialog
 
 private enum class MerchantHistoryPage { ORDERS, SERVICES }
 
@@ -119,10 +133,13 @@ fun TradesmanPanelScreen(
     var itemToDelete by remember { mutableStateOf<ItemModel?>(null) }
     var serviceToDelete by remember { mutableStateOf<ServiceModel?>(null) }
     var activeCustomerChatId by remember { mutableStateOf<String?>(null) }
+    var isReturnToLoginConfirmationOpen by remember { mutableStateOf(false) }
+    var isExitConfirmationOpen by remember { mutableStateOf(false) }
     val currentMerchantId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
 
-    BackHandler(enabled = historyPage != null) {
-        historyPage = null
+    BackHandler {
+        if (historyPage != null) historyPage = null
+        else isExitConfirmationOpen = true
     }
 
     val tabs = listOf(
@@ -130,7 +147,7 @@ fun TradesmanPanelScreen(
         "Hizmetlerim" to Icons.Default.Build,
         stringResource(R.string.tab_my_orders_count, uiState.activeOrders.size) to Icons.Default.ShoppingCart,
         stringResource(R.string.tab_my_appointments_count, uiState.activeAppointments.size) to Icons.Default.DateRange,
-        "Mesajlar" to Icons.Default.Email,
+        "Sohbetler" to Icons.Default.Email,
         "İşletme Ayarları" to Icons.Default.Settings
     )
 
@@ -150,7 +167,8 @@ fun TradesmanPanelScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = {
-                        if (historyPage != null) historyPage = null else onNavigateBack()
+                        if (historyPage != null) historyPage = null
+                        else isReturnToLoginConfirmationOpen = true
                     }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -175,22 +193,37 @@ fun TradesmanPanelScreen(
             )
         },
         floatingActionButton = {
-            if (historyPage == null && selectedTabIndex == 0) {
-                ExtendedFloatingActionButton(
-                    onClick = { viewModel.openAddProductDialog() },
-                    icon = { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_product), tint = com.example.esnafm.ui.theme.DarkInk) },
-                    text = { Text(stringResource(R.string.add_new_product), color = com.example.esnafm.ui.theme.DarkInk) },
-                    containerColor = com.example.esnafm.ui.theme.SkyBlue,
-                    contentColor = com.example.esnafm.ui.theme.DarkInk
-                )
-            } else if (historyPage == null && selectedTabIndex == 1) {
-                ExtendedFloatingActionButton(
-                    onClick = { viewModel.openAddServiceDialog() },
-                    icon = { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_service), tint = com.example.esnafm.ui.theme.DarkInk) },
-                    text = { Text(stringResource(R.string.add_new_service), color = com.example.esnafm.ui.theme.DarkInk) },
-                    containerColor = com.example.esnafm.ui.theme.SkyBlue,
-                    contentColor = com.example.esnafm.ui.theme.DarkInk
-                )
+            if (historyPage == null) {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (selectedTabIndex == 0) {
+                        ExtendedFloatingActionButton(
+                            onClick = { viewModel.openAddProductDialog() },
+                            icon = { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_product), tint = com.example.esnafm.ui.theme.DarkInk) },
+                            text = { Text(stringResource(R.string.add_new_product), color = com.example.esnafm.ui.theme.DarkInk) },
+                            containerColor = com.example.esnafm.ui.theme.SkyBlue,
+                            contentColor = com.example.esnafm.ui.theme.DarkInk
+                        )
+                    } else if (selectedTabIndex == 1) {
+                        ExtendedFloatingActionButton(
+                            onClick = { viewModel.openAddServiceDialog() },
+                            icon = { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_service), tint = com.example.esnafm.ui.theme.DarkInk) },
+                            text = { Text(stringResource(R.string.add_new_service), color = com.example.esnafm.ui.theme.DarkInk) },
+                            containerColor = com.example.esnafm.ui.theme.SkyBlue,
+                            contentColor = com.example.esnafm.ui.theme.DarkInk
+                        )
+                    }
+                    ExtendedFloatingActionButton(
+                        onClick = { selectedTabIndex = 4 },
+                        modifier = Modifier.height(48.dp),
+                        icon = { Icon(Icons.Default.Email, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        text = { Text("Sohbetler") },
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -236,29 +269,43 @@ fun TradesmanPanelScreen(
             }
 
             // Durum / Bildirim Mesajı
-            if (uiState.statusMessage != null) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (uiState.statusMessage!!.contains("✅") || uiState.statusMessage!!.contains("🗑️")) {
-                            MaterialTheme.colorScheme.primaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.errorContainer
-                        }
-                    )
-                ) {
-                    Text(
-                        text = uiState.statusMessage!!,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        modifier = Modifier.padding(12.dp)
-                    )
+            AnimatedContent(
+                targetState = uiState.statusMessage,
+                transitionSpec = {
+                    (fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+                        expandVertically(tween(260, easing = FastOutSlowInEasing))) togetherWith
+                        (fadeOut(tween(140)) + shrinkVertically(tween(190)))
+                },
+                label = "tradesman_status_banner"
+            ) { statusMessage ->
+                if (statusMessage != null) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (statusMessage.contains("✅") || statusMessage.contains("🗑️")) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.errorContainer
+                            }
+                        )
+                    ) {
+                        Text(
+                            text = statusMessage,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
                 }
             }
 
             // Yükleme Durumu
-            if (uiState.isLoading) {
+            AnimatedVisibility(
+                visible = uiState.isLoading,
+                enter = fadeIn(tween(180)),
+                exit = fadeOut(tween(150))
+            ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -267,36 +314,54 @@ fun TradesmanPanelScreen(
                 ) {
                     CircularProgressIndicator()
                 }
-            } else {
-                // Seçili Sekmenin İçeriği
-                when (selectedTabIndex) {
-                    0 -> ProductListSection(
-                        products = uiState.products,
-                        onEditClick = { viewModel.openAddProductDialog(it) },
-                        onDeleteClick = { itemToDelete = it }
-                    )
-                    1 -> ServiceListSection(
-                        services = uiState.services,
-                        onEditClick = { viewModel.openAddServiceDialog(it) },
-                        onDeleteClick = { serviceToDelete = it }
-                    )
-                    2 -> TradesmanOrdersSection(
-                        orders = uiState.activeOrders,
-                        previousCount = uiState.previousOrders.size,
-                        onOpenPrevious = { historyPage = MerchantHistoryPage.ORDERS },
-                        onUpdateStatus = { order, status -> viewModel.updateOrderStatus(order.id, status) }
-                    )
-                    3 -> AppointmentRequestsSection(
-                        appointments = uiState.activeAppointments,
-                        previousCount = uiState.previousAppointments.size,
-                        onOpenPrevious = { historyPage = MerchantHistoryPage.SERVICES },
-                        onUpdateStatus = { app, status -> viewModel.updateAppointmentStatus(app.id, status) }
-                    )
-                    4 -> TradesmanMessagesSection(
-                        messages = uiState.messages,
-                        onOpenConversation = { activeCustomerChatId = it }
-                    )
-                    5 -> BusinessSettingsSection(uiState = uiState)
+            }
+            AnimatedVisibility(
+                visible = !uiState.isLoading,
+                enter = fadeIn(tween(240, easing = FastOutSlowInEasing)) +
+                    slideInVertically(animationSpec = tween(280, easing = FastOutSlowInEasing)) { it / 32 },
+                exit = fadeOut(tween(140)) +
+                    slideOutVertically(animationSpec = tween(180)) { -it / 40 }
+            ) {
+                // Seçili sekmenin içeriği kısa ve yumuşak bir geçişle değişir.
+                AnimatedContent(
+                    targetState = selectedTabIndex,
+                    transitionSpec = {
+                        (fadeIn(tween(240, easing = FastOutSlowInEasing)) +
+                            slideInVertically(animationSpec = tween(280, easing = FastOutSlowInEasing)) { it / 20 }) togetherWith
+                            (fadeOut(tween(150, easing = FastOutSlowInEasing)) +
+                                slideOutVertically(animationSpec = tween(190, easing = FastOutSlowInEasing)) { -it / 28 })
+                    },
+                    label = "tradesman_tab_transition"
+                ) { activeTab ->
+                    when (activeTab) {
+                        0 -> ProductListSection(
+                            products = uiState.products,
+                            onEditClick = { viewModel.openAddProductDialog(it) },
+                            onDeleteClick = { itemToDelete = it }
+                        )
+                        1 -> ServiceListSection(
+                            services = uiState.services,
+                            onEditClick = { viewModel.openAddServiceDialog(it) },
+                            onDeleteClick = { serviceToDelete = it }
+                        )
+                        2 -> TradesmanOrdersSection(
+                            orders = uiState.activeOrders,
+                            previousCount = uiState.previousOrders.size,
+                            onOpenPrevious = { historyPage = MerchantHistoryPage.ORDERS },
+                            onUpdateStatus = { order, status -> viewModel.updateOrderStatus(order.id, status) }
+                        )
+                        3 -> AppointmentRequestsSection(
+                            appointments = uiState.activeAppointments,
+                            previousCount = uiState.previousAppointments.size,
+                            onOpenPrevious = { historyPage = MerchantHistoryPage.SERVICES },
+                            onUpdateStatus = { app, status -> viewModel.updateAppointmentStatus(app.id, status) }
+                        )
+                        4 -> TradesmanMessagesSection(
+                            messages = uiState.messages,
+                            onOpenConversation = { activeCustomerChatId = it }
+                        )
+                        5 -> BusinessSettingsSection(uiState = uiState)
+                    }
                 }
             }
             }
@@ -381,6 +446,23 @@ fun TradesmanPanelScreen(
         }
     }
 
+    if (isReturnToLoginConfirmationOpen) {
+        ConfirmActionDialog(
+            title = "Giriş ekranına dönülsün mü?",
+            message = "İşletme panelinden çıkıp giriş ekranına dönmek istediğine emin misin?",
+            confirmText = "Giriş ekranına dön",
+            onConfirm = {
+                isReturnToLoginConfirmationOpen = false
+                onNavigateBack()
+            },
+            onDismiss = { isReturnToLoginConfirmationOpen = false }
+        )
+    }
+    ConfirmAppExitDialog(
+        visible = isExitConfirmationOpen,
+        onDismiss = { isExitConfirmationOpen = false }
+    )
+
     activeCustomerChatId?.let { customerId ->
         MerchantChatDialog(
             merchantId = currentMerchantId,
@@ -388,7 +470,8 @@ fun TradesmanPanelScreen(
             currentUserId = currentMerchantId,
             title = "Müşteri sohbeti",
             isMerchant = true,
-            onDismiss = { activeCustomerChatId = null }
+            onDismiss = { activeCustomerChatId = null },
+            onConversationFinished = { activeCustomerChatId = null }
         )
     }
 }
@@ -401,6 +484,7 @@ private fun BusinessHeaderCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .animateContentSize(animationSpec = tween(280, easing = FastOutSlowInEasing))
             .padding(16.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -484,7 +568,9 @@ private fun ProductListSection(
 
             items(products) { item ->
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .animateContentSize(animationSpec = tween(260, easing = FastOutSlowInEasing)),
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surface
@@ -611,7 +697,9 @@ private fun ServiceListSection(
 
             items(services) { service ->
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .animateContentSize(animationSpec = tween(260, easing = FastOutSlowInEasing)),
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surface
@@ -789,8 +877,8 @@ private fun TradesmanOrdersSection(
                     Text("Adet: ${order.quantity}  •  Toplam: ${order.price * order.quantity} TL")
                     Text(
                         text = "Ödeme: ${when {
-                            order.paymentStatus == "demo_paid" -> "Kart ödemesi demo olarak kaydedildi · gerçek tahsilat yok"
-                            order.paymentStatus == "demo_refunded" -> "Demo iadesi işlendi · gerçek para hareketi yok"
+                            order.paymentStatus == "demo_paid" -> "Kart ödemesi kaydedildi"
+                            order.paymentStatus == "demo_refunded" -> "İade kaydı oluşturuldu"
                             order.paymentMethod == "cash_on_delivery" -> "Kapıda nakit"
                             order.paymentMethod == "pay_at_store" -> "İşletmede ödeme"
                             else -> "Ödeme bekleniyor"
@@ -798,7 +886,7 @@ private fun TradesmanOrdersSection(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (order.recipientName.isNotBlank()) Text("Teslim alacak: ${order.recipientName} · ${order.customerPhone}")
+                    Text("İletişim uygulama içi mesajlaşmadan yürütülür.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (order.fulfillmentType == "pickup") {
                         Text("Teslim alma: İşletmeden")
                     } else if (order.deliveryAddress.isNotBlank()) {
@@ -820,7 +908,7 @@ private fun TradesmanOrdersSection(
                         Text("30 dakika içinde esnaf onayı gelmediği için otomatik iptal edildi.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
                     if (order.status == "cancelled" && order.cancellationReason == "customer_cancelled") {
-                        Text("Müşteri siparişi iptal etti. Varsa demo ödeme iadesi işlendi.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        Text("Müşteri siparişi iptal etti. Varsa ödeme iadesi kaydedildi.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
                     if (order.status == "cancelled" && order.cancellationReason == "merchant_cancelled") {
                         Text("Sipariş işletme tarafından iptal edildi.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
@@ -870,8 +958,8 @@ private fun TradesmanMessagesSection(
     if (messages.isEmpty()) {
         EmptyStateSection(
             icon = Icons.Default.Email,
-            title = "Henüz mesaj yok",
-            subtitle = "Esnaf sayfandan gelen mesajlar burada görünür."
+            title = "Henüz sohbet yok",
+            subtitle = "Müşteriler işletme sayfandaki Esnafa Ulaş düğmesinden yazabilir."
         )
         return
     }
@@ -910,12 +998,7 @@ private fun TradesmanMessagesSection(
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.primary
                         )
-                        Text(
-                            text = message.message.ifBlank { when (message.attachmentType) { "image" -> "📷 Fotoğraf"; "video" -> "🎥 Video"; else -> "📎 ${message.attachmentName.ifBlank { "Dosya" }}" } },
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
+                        Text("Son hareket", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Text(
                         text = java.text.SimpleDateFormat("HH:mm", java.util.Locale("tr", "TR")).format(java.util.Date(message.createdAt)),
@@ -1013,31 +1096,23 @@ private fun AppointmentRequestsSection(
 
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        if (app.customerEmail.isNotBlank()) {
-                            Text(
-                                text = "Müşteri: ${app.customerEmail}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        if (app.recipientName.isNotBlank() || app.customerPhone.isNotBlank()) {
-                            Text("İletişim: ${app.recipientName} · ${app.customerPhone}", style = MaterialTheme.typography.bodySmall)
-                        }
+                        Text("Kullanıcı ID: ${app.customerId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("İletişim uygulama içi mesajlaşmadan yürütülür.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
                             text = "Depozito: ${app.depositAmount} TL · ${when (app.depositPaymentStatus) {
                                 "not_required" -> "yok"
-                                "demo_paid" -> "demo olarak ödendi"
-                                "demo_refunded" -> "demo iadesi işlendi"
+                                "demo_paid" -> "ödeme kaydedildi"
+                                "demo_refunded" -> "iade kaydedildi"
                                 "cash_paid" -> "elden alındı"
-                                else -> "demo ödemesi bekleniyor"
+                                else -> "ödeme bekleniyor"
                             }}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = "Kalan ${ (app.price - app.depositAmount).coerceAtLeast(0.0) } TL · ${when (app.balancePaymentStatus) {
-                                "requested" -> "müşteriden demo ödeme istendi"
-                                "demo_paid" -> "demo olarak tamamlandı"
+                                "requested" -> "müşteriden ödeme istendi"
+                                "demo_paid" -> "ödeme kaydedildi"
                                 "cash_paid" -> "elden alındı"
                                 else -> "hizmet sonunda alınacak"
                             }}",
@@ -1122,10 +1197,10 @@ private fun AppointmentRequestsSection(
                         if (app.status == "approved") {
                             Spacer(modifier = Modifier.height(12.dp))
                             if (app.depositAmount > 0.0 && app.depositPaymentStatus == "unpaid") {
-                                Text("Müşterinin depozito demo ödemesi bekleniyor.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+                                Text("Müşterinin depozito ödemesi bekleniyor.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
                             } else {
                                 Button(onClick = { onUpdateStatus(app, "request_balance") }, modifier = Modifier.fillMaxWidth()) {
-                                    Text("Hizmet tamamlandı · online demo bakiye iste")
+                                    Text("Hizmeti tamamla · online ödeme iste")
                                 }
                                 OutlinedButton(onClick = { onUpdateStatus(app, "cash_paid") }, modifier = Modifier.fillMaxWidth()) {
                                     Text("Elden ödeme alındı · tamamla")
@@ -1137,13 +1212,10 @@ private fun AppointmentRequestsSection(
                         }
                         if (app.status == "service_completed" && app.balancePaymentStatus == "requested") {
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text("Müşteriye kalan tutar için demo online ödeme talebi gönderildi.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+                            Text("Müşteriye kalan tutar için online ödeme talebi gönderildi.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
                             OutlinedButton(onClick = { onUpdateStatus(app, "cash_paid") }, modifier = Modifier.fillMaxWidth()) {
                                 Text("Elden ödeme alındı · tamamla")
                             }
-                        }
-                        if (app.depositAmount > 0.0 && app.depositPaymentStatus == "demo_paid") {
-                            Text("Depozito gerçek tahsilat değildir; demo kaydıdır.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

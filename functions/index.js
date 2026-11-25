@@ -7,6 +7,7 @@ admin.initializeApp();
 
 const db = admin.firestore();
 const APPROVAL_WINDOW_MS = 30 * 60 * 1000;
+const CHAT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 async function deleteQueryInPages(query, onPage = async () => {}) {
   while (true) {
@@ -17,6 +18,77 @@ async function deleteQueryInPages(query, onPage = async () => {}) {
     page.docs.forEach((document) => batch.delete(document.ref));
     await batch.commit();
   }
+}
+
+function toMillis(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value && typeof value.toMillis === "function") return value.toMillis();
+  return 0;
+}
+
+function messageCustomerId(message) {
+  return String(message.customerId || message.senderId || "");
+}
+
+async function findLatestConversationMessage(merchantId, customerId) {
+  const messages = db.collection("merchant_messages");
+  const indexedPage = await messages
+    .where("merchantId", "==", merchantId)
+    .where("customerId", "==", customerId)
+    .orderBy("createdAt", "desc")
+    .limit(1)
+    .get();
+  if (!indexedPage.empty) return indexedPage.docs[0];
+
+  // Older messages did not always contain customerId; for those, senderId is the customer UID.
+  let cursor = null;
+  while (true) {
+    let query = messages
+      .where("merchantId", "==", merchantId)
+      .orderBy("createdAt", "desc")
+      .limit(400);
+    if (cursor) query = query.startAfter(cursor);
+    const page = await query.get();
+    if (page.empty) return null;
+    const match = page.docs.find((document) => messageCustomerId(document.data()) === customerId);
+    if (match) return match;
+    cursor = page.docs[page.docs.length - 1];
+  }
+}
+
+async function deleteMerchantConversationData(merchantId, customerId, conversationRef) {
+  const bucket = admin.storage().bucket();
+  const attachmentPrefix = `merchant_chats/${merchantId}/${customerId}/`;
+  const messageCollection = db.collection("merchant_messages");
+  let cursor = null;
+
+  while (true) {
+    let query = messageCollection
+      .where("merchantId", "==", merchantId)
+      .orderBy(admin.firestore.FieldPath.documentId())
+      .limit(400)
+    if (cursor) query = query.startAfter(cursor);
+    const page = await query.get();
+    if (page.empty) break;
+    cursor = page.docs[page.docs.length - 1];
+    const conversationMessages = page.docs.filter((document) =>
+      messageCustomerId(document.data()) === customerId
+    );
+    if (conversationMessages.length === 0) continue;
+
+    const attachmentPaths = [...new Set(conversationMessages
+      .map((document) => String(document.get("attachmentPath") || ""))
+      .filter((path) => path.startsWith(attachmentPrefix)))];
+    await Promise.all(attachmentPaths.map((path) =>
+      bucket.file(path).delete({ ignoreNotFound: true })
+    ));
+
+    const batch = db.batch();
+    conversationMessages.forEach((document) => batch.delete(document.ref));
+    await batch.commit();
+  }
+
+  await conversationRef.delete();
 }
 
 async function removeDeletedAccountData(uid) {
@@ -219,6 +291,22 @@ exports.notifyNewMessage = onDocumentCreated(
   async (event) => {
     const message = event.data?.data();
     if (!message) return;
+    const merchantId = String(message.merchantId || "");
+    const customerId = String(message.customerId || "");
+    const messageAt = toMillis(message.createdAt) || Date.now();
+    if (merchantId && customerId) {
+      const conversationRef = db.collection("merchant_conversations").doc(`${merchantId}--${customerId}`);
+      await db.runTransaction(async (transaction) => {
+        const conversation = await transaction.get(conversationRef);
+        if (!conversation.exists || conversation.get("status") === "closed") return;
+        if (messageAt > toMillis(conversation.get("lastMessageAt"))) {
+          transaction.update(conversationRef, {
+            lastMessageAt: messageAt,
+            lastMessageId: event.params.messageId
+          });
+        }
+      });
+    }
     const recipientUid = message.senderId === message.customerId ? message.merchantId : message.customerId;
     await sendUserNotification(
       String(recipientUid || ""),
@@ -226,6 +314,77 @@ exports.notifyNewMessage = onDocumentCreated(
       "Yeni mesaj",
       "Esnaf sohbetinizde yeni bir mesajınız var."
     );
+  }
+);
+
+/** Removes chat history and uploaded attachments after 30 days without a message. */
+exports.purgeInactiveMerchantConversations = onSchedule(
+  {
+    schedule: "every day 04:15",
+    timeZone: "Europe/Istanbul",
+    region: "europe-west1",
+    timeoutSeconds: 540,
+    maxInstances: 1
+  },
+  async () => {
+    const cutoff = Date.now() - CHAT_RETENTION_MS;
+    const conversations = db.collection("merchant_conversations");
+    let cursor = null;
+    let scanned = 0;
+    let deleted = 0;
+
+    while (true) {
+      let pageQuery = conversations
+        .orderBy(admin.firestore.FieldPath.documentId())
+        .limit(100);
+      if (cursor) pageQuery = pageQuery.startAfter(cursor);
+      const page = await pageQuery.get();
+      if (page.empty) break;
+      cursor = page.docs[page.docs.length - 1];
+
+      for (const conversation of page.docs) {
+        scanned += 1;
+        const data = conversation.data();
+        const merchantId = String(data.merchantId || "");
+        const customerId = String(data.customerId || "");
+        if (!merchantId || !customerId || conversation.id !== `${merchantId}--${customerId}`) continue;
+
+        const latestMessage = await findLatestConversationMessage(merchantId, customerId);
+        const latestMessageAt = latestMessage ? toMillis(latestMessage.get("createdAt")) : 0;
+        const storedActivityAt = toMillis(data.lastMessageAt);
+        const createdAt = toMillis(data.createdAt);
+        const lastActivityAt = Math.max(latestMessageAt, storedActivityAt, createdAt);
+        const isClosed = data.status === "closed";
+
+        // Backfill older conversations and repair activity metadata before the retention check.
+        if (!isClosed && latestMessageAt > storedActivityAt) {
+          await conversation.ref.set({
+            lastMessageAt: latestMessageAt,
+            lastMessageId: latestMessage.id
+          }, { merge: true });
+        }
+        if (!isClosed && lastActivityAt > cutoff) continue;
+
+        const shouldDelete = await db.runTransaction(async (transaction) => {
+          const latestConversation = await transaction.get(conversation.ref);
+          if (!latestConversation.exists) return false;
+          if (latestConversation.get("status") === "closed") return true;
+          if (toMillis(latestConversation.get("lastMessageAt")) > cutoff) return false;
+          transaction.update(conversation.ref, {
+            status: "closed",
+            closedAt: Date.now()
+          });
+          return true;
+        });
+
+        if (shouldDelete) {
+          await deleteMerchantConversationData(merchantId, customerId, conversation.ref);
+          deleted += 1;
+        }
+      }
+    }
+
+    console.log(`Scanned ${scanned} conversations and removed ${deleted} inactive chats.`);
   }
 );
 
@@ -244,11 +403,26 @@ exports.expireUnapprovedOrders = onSchedule(
   },
   async () => {
     const now = Date.now();
-    const pendingSnapshot = await db.collection("orders")
-      .where("status", "==", "pending")
-      .get();
-
-    const expired = pendingSnapshot.docs.filter((doc) => {
+    const orders = db.collection("orders");
+    const [deadlineSnapshot, legacySnapshot] = await Promise.all([
+      orders
+        .where("status", "==", "pending")
+        .where("approvalDeadlineAt", "<=", now)
+        .orderBy("approvalDeadlineAt", "asc")
+        .limit(100)
+        .get(),
+      orders
+        .where("status", "==", "pending")
+        .where("createdAt", "<=", now - APPROVAL_WINDOW_MS)
+        .orderBy("createdAt", "asc")
+        .limit(100)
+        .get()
+    ]);
+    const candidates = new Map();
+    [...deadlineSnapshot.docs, ...legacySnapshot.docs].forEach((document) => {
+      candidates.set(document.id, document);
+    });
+    const expired = [...candidates.values()].filter((doc) => {
       const order = doc.data();
       const createdAt = Number(order.createdAt || 0);
       const deadline = Number(order.approvalDeadlineAt || (createdAt + APPROVAL_WINDOW_MS));
@@ -283,18 +457,20 @@ exports.expireUnapprovedOrders = onSchedule(
             updates.paymentStatus = "demo_refunded";
             updates.refundAt = Date.now();
           }
-          transaction.update(orderRef, updates);
-
           const quantity = Number(order.quantity || 0);
           if (itemRef && itemSnapshot?.exists && Number.isInteger(quantity) && quantity > 0) {
             const currentStock = Number(itemSnapshot.get("stock") || 0);
             transaction.update(itemRef, "stock", currentStock + quantity);
+            updates.stockRestoredAt = Date.now();
           }
+          // Admin SDK writes bypass Firestore rules; this marker keeps retries and
+          // client-side cancellation handling from restoring the same stock twice.
+          transaction.update(orderRef, updates);
         });
       }));
     }
 
-    console.log(`Checked ${pendingSnapshot.size} pending orders; cancelled ${expired.length} expired requests.`);
+    console.log(`Found ${expired.length} overdue requests from bounded queries; cancelled expired orders.`);
   }
 );
 

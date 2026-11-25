@@ -454,7 +454,6 @@ fun ProductDetailScreen(
         val preferredAddress = savedAddresses.firstOrNull { it.isDefault }?.fullAddress?.takeIf { it.isNotBlank() }
             ?: savedAddresses.firstOrNull()?.fullAddress?.takeIf { it.isNotBlank() }
             ?: profileAddress
-        val profileName = listOf(profile?.name, profile?.surname).filterNotNull().filter { it.isNotBlank() }.joinToString(" ")
         ProductCheckoutDialog(
             item = itemModel!!,
             quantity = orderQuantity,
@@ -462,10 +461,8 @@ fun ProductDetailScreen(
             initialAddress = preferredAddress,
             isSubmitting = isOrdering,
             errorMessage = orderError,
-            initialName = currentUser?.displayName?.takeIf { it.isNotBlank() } ?: profileName,
-            initialPhone = profile?.phone?.takeIf { it.isNotBlank() } ?: currentUser?.phoneNumber.orEmpty(),
             onDismiss = { if (!isOrdering) isCheckoutOpen = false },
-            onConfirm = { recipientName, phone, address, fulfillmentType, paymentMethod ->
+            onConfirm = { address, fulfillmentType, paymentMethod ->
                 if (currentUser == null) {
                     orderError = "Sipariş vermek için tekrar giriş yapmalısınız."
                     return@ProductCheckoutDialog
@@ -476,10 +473,7 @@ fun ProductDetailScreen(
                     val result = orderRepository.createOrder(
                         itemId = itemModel!!.id,
                         customerId = currentUser.uid,
-                        customerEmail = currentUser.email.orEmpty(),
                         quantity = orderQuantity,
-                        recipientName = recipientName,
-                        customerPhone = phone,
                         deliveryAddress = if (fulfillmentType == "delivery") address else "",
                         fulfillmentType = fulfillmentType,
                         paymentMethod = paymentMethod
@@ -490,7 +484,7 @@ fun ProductDetailScreen(
                             itemModel = itemModel!!.copy(stock = (itemModel!!.stock - orderQuantity).coerceAtLeast(0))
                             isCheckoutOpen = false
                             orderMessage = if (paymentMethod == "mock_card") {
-                                "Demo ödemeniz kaydedildi, sipariş esnaf onayına gönderildi. 30 dakika içinde onaylanmazsa otomatik iptal ve demo iadesi yapılır."
+                                "Ödeme kaydınız oluşturuldu, sipariş esnaf onayına gönderildi. 30 dakika içinde onaylanmazsa sipariş otomatik iptal edilir."
                             } else {
                                 "Siparişiniz oluşturuldu. Esnaf onayını ve teslimat aşamalarını Siparişlerim bölümünden takip edin."
                             }

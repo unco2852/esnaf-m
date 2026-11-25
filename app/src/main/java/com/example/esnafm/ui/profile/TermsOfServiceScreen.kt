@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.esnafm.data.legal.LegalDocuments
 import com.example.esnafm.ui.theme.DarkInk
 import com.example.esnafm.ui.theme.LightBeige
 import com.example.esnafm.ui.theme.Turquoise
@@ -44,21 +45,11 @@ import com.example.esnafm.ui.theme.WarmCream
 fun TermsOfServiceScreen(
     onNavigateBack: () -> Unit
 ) {
-    val sections = listOf(
-        LegalSection(1, "Taraflar ve Amaç", "Bu kullanım koşulları, Esnafım mobil platformu ('Esnafım') ile platforma üye olan müşteri ve esnaf kullanıcılar arasındaki şartları düzenler."),
-        LegalSection(2, "Hizmetin Kapsamı", "Bu eğitim sürümü işletme, ürün ve hizmet listeleri; müşteri sipariş/randevu talepleri; mesajlaşma ve Çırak üzerinden işletme bulma akışlarını gösteren bir prototiptir."),
-        LegalSection(3, "Üyelik ve Hesap Güvenliği", "Kullanıcılar verdikleri bilgilerin doğruluğundan ve hesap şifrelerinin güvenliğinden sorumludur."),
-        LegalSection(4, "Müşteri Yükümlülükleri", "Müşteriler, oluşturdukları randevulara ve sipariş taleplerine dürüstlük kuralları çerçevesinde uymayı kabul eder."),
-        LegalSection(5, "Esnaf Yükümlülükleri", "Esnaflar, sergiledikleri ürün ve hizmetlerin fiyat ve açıklama bilgilerinin doğru olduğunu kabul eder."),
-        LegalSection(6, "Prototip Sınırı", "Uygulamadaki akışlar eğitim ve deneme amacı taşır; gerçek bir ticari hizmet olarak değerlendirilmemelidir."),
-        LegalSection(7, "Güncelleme Tarihi", "Bu prototip kullanım koşulları 20 Kasım 2026 tarihinde güncellenmiştir.")
-    )
-
     Scaffold(
         containerColor = WarmCream,
         topBar = {
             TopAppBar(
-                title = { Text("Kullanım Koşulları 📜", fontWeight = FontWeight.Bold) },
+                title = { Text("Ön Bilgilendirme ve Sözleşmeler", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Geri")
@@ -88,30 +79,50 @@ fun TermsOfServiceScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Description, contentDescription = null, tint = Turquoise)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Prototip koşulları · 20.11.2026", fontWeight = FontWeight.Bold, color = DarkInk)
+                            Text("Esnafım proje sürümü · 24.11.2026", fontWeight = FontWeight.Bold, color = DarkInk)
                         }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Bu metinler müşteri ve işletme kayıtlarında okunabilir. Eğitim/prototip sürümü için hazırlanmıştır; gerçek kullanıma geçmeden önce işletmeci bilgileri ve işlem koşulları tamamlanıp hukuki incelemeden geçirilmelidir.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DarkInk.copy(alpha = 0.85f)
+                        )
                     }
                 }
             }
 
-            items(sections) { sec ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = LightBeige)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "${sec.number}. ${sec.title}",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = DarkInk
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = sec.content,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = DarkInk.copy(alpha = 0.85f)
-                        )
+            items(LegalDocuments.all, key = { it.id }) { document ->
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = document.title,
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = DarkInk
+                    )
+                    Text(
+                        text = "Sürüm ${document.version} · ${document.updatedAt}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = DarkInk.copy(alpha = 0.7f)
+                    )
+                    document.sections.forEach { section ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = LightBeige)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = section.title,
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = DarkInk
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = section.content,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = DarkInk.copy(alpha = 0.85f)
+                                )
+                            }
+                        }
                     }
                 }
             }

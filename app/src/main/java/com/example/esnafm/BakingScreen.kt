@@ -179,7 +179,7 @@ fun BakingScreen(
 fun BakingScreenPreview() {
     EsnafımTheme {
         BakingScreen(
-            uiState = UiState.Success("This is a sample result text demonstrating the UI."),
+            uiState = UiState.Success("İşlem başarıyla tamamlandı."),
             onSendPrompt = { _, _ -> }
         )
     }
